@@ -1,0 +1,220 @@
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/gcrg/kdb/service/pkg/auth"
+	"github.com/gcrg/kdb/service/pkg/db"
+	"github.com/gcrg/kdb/service/pkg/middleware"
+	"github.com/gcrg/kdb/service/pkg/models"
+)
+
+type AuthHandler struct {
+	DB        *db.DB
+	JWTSecret []byte
+}
+
+type RegisterRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type LoginRequest struct {
+	UsernameOrEmail string `json:"username_or_email"`
+	Password        string `json:"password"`
+}
+
+type AuthResponse struct {
+	Token string      `json:"token"`
+	User  models.User `json:"user"`
+}
+
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var req RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request payload"}`, http.StatusBadRequest)
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+
+	if len(req.Username) < 3 || len(req.Password) < 6 || !strings.Contains(req.Email, "@") {
+		http.Error(w, `{"error":"username must be >= 3 chars, password >= 6 chars, and a valid email"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Check if username or email already exists
+	var count int
+	err := h.DB.QueryRow("SELECT COUNT(*) FROM users WHERE username = ? OR email = ?", req.Username, req.Email).Scan(&count)
+	if err != nil {
+		http.Error(w, `{"error":"internal database error"}`, http.StatusInternalServerError)
+		return
+	}
+	if count > 0 {
+		http.Error(w, `{"error":"username or email already in use"}`, http.StatusConflict)
+		return
+	}
+
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		http.Error(w, `{"error":"failed to hash password"}`, http.StatusInternalServerError)
+		return
+	}
+
+	user := models.User{
+		ID:           uuid.New().String(),
+		Username:     req.Username,
+		Email:        req.Email,
+		PasswordHash: hash,
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	_, err = h.DB.Exec(
+		"INSERT INTO users (id, username, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+		user.ID, user.Username, user.Email, user.PasswordHash, user.CreatedAt,
+	)
+	if err != nil {
+		http.Error(w, `{"error":"failed to create user"}`, http.StatusInternalServerError)
+		return
+	}
+
+	token, err := auth.GenerateToken(h.JWTSecret, user.ID, user.Username, user.Email, 7*24*time.Hour)
+	if err != nil {
+		http.Error(w, `{"error":"failed to generate session token"}`, http.StatusInternalServerError)
+		return
+	}
+
+	h.setAuthCookie(w, token)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(AuthResponse{Token: token, User: user})
+}
+
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request payload"}`, http.StatusBadRequest)
+		return
+	}
+
+	queryTerm := strings.TrimSpace(req.UsernameOrEmail)
+	var user models.User
+	err := h.DB.QueryRow(
+		"SELECT id, username, email, password_hash, created_at FROM users WHERE username = ? OR email = ?",
+		queryTerm, strings.ToLower(queryTerm),
+	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt)
+
+	if err != nil || !auth.CheckPassword(req.Password, user.PasswordHash) {
+		http.Error(w, `{"error":"invalid username/email or password"}`, http.StatusUnauthorized)
+		return
+	}
+
+	token, err := auth.GenerateToken(h.JWTSecret, user.ID, user.Username, user.Email, 7*24*time.Hour)
+	if err != nil {
+		http.Error(w, `{"error":"failed to generate session token"}`, http.StatusInternalServerError)
+		return
+	}
+
+	h.setAuthCookie(w, token)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(AuthResponse{Token: token, User: user})
+}
+
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "kdb_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"message":"logged out successfully"}`))
+}
+
+type SharedAccountInfo struct {
+	OwnerID    string                 `json:"owner_id"`
+	Username   string                 `json:"username"`
+	Permission models.SharePermission `json:"permission"`
+}
+
+type MeResponse struct {
+	User           models.User         `json:"user"`
+	HasRoutes      bool                `json:"has_routes"`
+	HasHome        bool                `json:"has_home"`
+	SharedAccounts []SharedAccountInfo `json:"shared_accounts"`
+}
+
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	authUser, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	var user models.User
+	err := h.DB.QueryRow(
+		"SELECT id, username, email, created_at FROM users WHERE id = ?",
+		authUser.ID,
+	).Scan(&user.ID, &user.Username, &user.Email, &user.CreatedAt)
+	if err != nil {
+		http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
+		return
+	}
+
+	// Check if user has routes
+	var routeCount int
+	_ = h.DB.QueryRow("SELECT COUNT(*) FROM routes WHERE user_id = ?", user.ID).Scan(&routeCount)
+
+	// Check if user has home location
+	var homeCount int
+	_ = h.DB.QueryRow("SELECT COUNT(*) FROM locations WHERE user_id = ? AND type = 'home'", user.ID).Scan(&homeCount)
+
+	// Get shared accounts
+	rows, err := h.DB.Query(`
+		SELECT s.owner_user_id, u.username, s.permission
+		FROM account_shares s
+		JOIN users u ON s.owner_user_id = u.id
+		WHERE s.shared_with_user_id = ?
+	`, user.ID)
+
+	sharedAccounts := make([]SharedAccountInfo, 0)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var acc SharedAccountInfo
+			if err := rows.Scan(&acc.OwnerID, &acc.Username, &acc.Permission); err == nil {
+				sharedAccounts = append(sharedAccounts, acc)
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(MeResponse{
+		User:           user,
+		HasRoutes:      routeCount > 0,
+		HasHome:        homeCount > 0,
+		SharedAccounts: sharedAccounts,
+	})
+}
+
+func (h *AuthHandler) setAuthCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "kdb_token",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   7 * 24 * 3600,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
