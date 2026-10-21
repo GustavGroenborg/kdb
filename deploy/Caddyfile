@@ -1,0 +1,7 @@
+# Replace your-domain.com with your Oracle Cloud instance public IP or domain name
+# Caddy will automatically provision and renew a free Let's Encrypt TLS certificate.
+
+your-domain.com {
+    reverse_proxy localhost:8080
+    encode gzip zstd
+}

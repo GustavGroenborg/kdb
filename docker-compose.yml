@@ -1,0 +1,15 @@
+services:
+  kdb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kdb-service
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DATABASE_PATH=/data/database/kdb.db
+      - JWT_SECRET=${JWT_SECRET:-change-this-in-production-to-a-secure-random-key}
+    volumes:
+      - ./database:/data/database
