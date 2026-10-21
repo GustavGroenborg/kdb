@@ -17,6 +17,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   switchAccount: (accountId: string | null) => void;
   refreshMe: () => Promise<void>;
+  updateUserSession: (updatedUser: User, token: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -100,6 +101,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
+  const updateUserSession = (updatedUser: User, token: string) => {
+    setAuthToken(token);
+    setUser(updatedUser);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -117,6 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         switchAccount,
         refreshMe,
+        updateUserSession,
       }}
     >
       {children}

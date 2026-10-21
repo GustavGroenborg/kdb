@@ -16,10 +16,13 @@ import {
   Pencil,
   X,
   Check,
+  UserCog,
+  KeyRound,
+  Lock,
 } from 'lucide-react';
 
 export const SettingsTab: React.FC = () => {
-  const { activePermission, activeAccountName, refreshMe } = useAuth();
+  const { user, activePermission, activeAccountName, isViewingSharedAccount, refreshMe, updateUserSession } = useAuth();
   const canWrite = activePermission === 'write';
 
   const [locations, setLocations] = useState<Location[]>([]);
@@ -54,6 +57,27 @@ export const SettingsTab: React.FC = () => {
   // 4. Share Form
   const [shareUserOrEmail, setShareUserOrEmail] = useState('');
   const [sharePermission, setSharePermission] = useState<SharePermission>('read');
+
+  // 5. Account Settings (Profile & Password)
+  const [profileUsername, setProfileUsername] = useState(user?.username || '');
+  const [profileEmail, setProfileEmail] = useState(user?.email || '');
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      setProfileUsername(user.username);
+      setProfileEmail(user.email);
+    }
+  }, [user]);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -258,6 +282,77 @@ export const SettingsTab: React.FC = () => {
       await fetchData();
     } catch (err: any) {
       alert(err.message || 'Failed to revoke access');
+    }
+  };
+
+  // 5. Update Profile (Username & Email)
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileError(null);
+    setProfileSuccess(null);
+
+    const trimmedUsername = profileUsername.trim();
+    const trimmedEmail = profileEmail.trim();
+
+    if (trimmedUsername.length < 3) {
+      setProfileError('Username must be at least 3 characters');
+      return;
+    }
+    if (!trimmedEmail.includes('@')) {
+      setProfileError('Please enter a valid email address');
+      return;
+    }
+
+    setIsUpdatingProfile(true);
+    try {
+      const res = await api.updateProfile({
+        username: trimmedUsername,
+        email: trimmedEmail,
+      });
+      updateUserSession(res.user, res.token);
+      setProfileSuccess('Profile updated successfully!');
+      setTimeout(() => setProfileSuccess(null), 4000);
+    } catch (err: any) {
+      setProfileError(err.message || 'Failed to update profile');
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
+
+  // 6. Change Password
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    setPasswordSuccess(null);
+
+    if (!currentPassword) {
+      setPasswordError('Please enter your current password');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError('New password must be at least 6 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New password and confirmation do not match');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      await api.changePassword({
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      setPasswordSuccess('Password changed successfully!');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => setPasswordSuccess(null), 4000);
+    } catch (err: any) {
+      setPasswordError(err.message || 'Failed to change password');
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -667,6 +762,178 @@ export const SettingsTab: React.FC = () => {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* SECTION: ACCOUNT SETTINGS */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm lg:col-span-2">
+          <div className="flex items-center space-x-2.5 mb-2 text-slate-900">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 text-brand-600 flex items-center justify-center">
+              <UserCog className="w-4 h-4" />
+            </div>
+            <h2 className="text-base font-bold">Account Settings</h2>
+          </div>
+          <p className="text-xs text-slate-500 mb-6">
+            Manage your personal login credentials, change your email address, and update your password.
+          </p>
+
+          {isViewingSharedAccount ? (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center space-x-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                You are currently viewing a shared account (<strong>{activeAccountName}</strong>).
+                Account credentials can only be edited when viewing your personal account.
+              </span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Profile Details Form */}
+              <div className="p-5 bg-slate-50 rounded-xl border border-slate-200/80">
+                <div className="flex items-center space-x-2 mb-4">
+                  <UserCog className="w-4 h-4 text-slate-600" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Profile Information
+                  </h3>
+                </div>
+
+                {profileSuccess && (
+                  <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <span>{profileSuccess}</span>
+                  </div>
+                )}
+
+                {profileError && (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded-lg text-xs flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                    <span>{profileError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleUpdateProfile} className="space-y-4">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Username
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={profileUsername}
+                      onChange={(e) => setProfileUsername(e.target.value)}
+                      placeholder="Username (min 3 chars)"
+                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={profileEmail}
+                      onChange={(e) => setProfileEmail(e.target.value)}
+                      placeholder="you@domain.com"
+                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isUpdatingProfile}
+                    className="w-full py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-sm transition-all"
+                  >
+                    {isUpdatingProfile ? 'Saving Profile...' : 'Save Profile Changes'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Password Change Form */}
+              <div className="p-5 bg-slate-50 rounded-xl border border-slate-200/80">
+                <div className="flex items-center space-x-2 mb-4">
+                  <KeyRound className="w-4 h-4 text-slate-600" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Change Password
+                  </h3>
+                </div>
+
+                {passwordSuccess && (
+                  <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <span>{passwordSuccess}</span>
+                  </div>
+                )}
+
+                {passwordError && (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded-lg text-xs flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                    <span>{passwordError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleChangePassword} className="space-y-4">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Current Password
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                      <input
+                        type="password"
+                        required
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      New Password
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                      <input
+                        type="password"
+                        required
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="At least 6 characters"
+                        className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Confirm New Password
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                      <input
+                        type="password"
+                        required
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Repeat new password"
+                        className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isChangingPassword}
+                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-sm transition-all"
+                  >
+                    {isChangingPassword ? 'Updating Password...' : 'Update Password'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* SECTION 4: ACCOUNT ACCESS SHARING */}

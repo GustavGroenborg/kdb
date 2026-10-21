@@ -87,6 +87,18 @@ export const api = {
 
   me: () => request<MeResponse>('/api/auth/me'),
 
+  updateProfile: (payload: { username: string; email: string }) =>
+    request<{ token: string; user: User }>('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  changePassword: (payload: { current_password: string; new_password: string }) =>
+    request<{ message: string }>('/api/auth/password', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
   // Locations
   getLocations: () => request<Location[]>('/api/locations'),
 

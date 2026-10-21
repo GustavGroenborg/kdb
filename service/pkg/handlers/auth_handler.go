@@ -218,3 +218,124 @@ func (h *AuthHandler) setAuthCookie(w http.ResponseWriter, token string) {
 		SameSite: http.SameSiteLaxMode,
 	})
 }
+
+type UpdateProfileRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+}
+
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	authUser, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	var req UpdateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request payload"}`, http.StatusBadRequest)
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+
+	if len(req.Username) < 3 || !strings.Contains(req.Email, "@") {
+		http.Error(w, `{"error":"username must be >= 3 chars and email must be valid"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Check if username or email is already taken by another user
+	var count int
+	err := h.DB.QueryRow(
+		"SELECT COUNT(*) FROM users WHERE (username = ? OR email = ?) AND id != ?",
+		req.Username, req.Email, authUser.ID,
+	).Scan(&count)
+	if err != nil {
+		http.Error(w, `{"error":"internal database error"}`, http.StatusInternalServerError)
+		return
+	}
+	if count > 0 {
+		http.Error(w, `{"error":"username or email already in use"}`, http.StatusConflict)
+		return
+	}
+
+	_, err = h.DB.Exec(
+		"UPDATE users SET username = ?, email = ? WHERE id = ?",
+		req.Username, req.Email, authUser.ID,
+	)
+	if err != nil {
+		http.Error(w, `{"error":"failed to update profile"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch updated user
+	var user models.User
+	_ = h.DB.QueryRow(
+		"SELECT id, username, email, created_at FROM users WHERE id = ?",
+		authUser.ID,
+	).Scan(&user.ID, &user.Username, &user.Email, &user.CreatedAt)
+
+	// Issue updated JWT token
+	token, err := auth.GenerateToken(h.JWTSecret, user.ID, user.Username, user.Email, 7*24*time.Hour)
+	if err != nil {
+		http.Error(w, `{"error":"failed to generate updated session token"}`, http.StatusInternalServerError)
+		return
+	}
+
+	h.setAuthCookie(w, token)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(AuthResponse{Token: token, User: user})
+}
+
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	authUser, ok := middleware.GetAuthUser(r.Context())
+	if !ok {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request payload"}`, http.StatusBadRequest)
+		return
+	}
+
+	if len(req.NewPassword) < 6 {
+		http.Error(w, `{"error":"new password must be at least 6 characters"}`, http.StatusBadRequest)
+		return
+	}
+
+	var currentHash string
+	err := h.DB.QueryRow("SELECT password_hash FROM users WHERE id = ?", authUser.ID).Scan(&currentHash)
+	if err != nil {
+		http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
+		return
+	}
+
+	if !auth.CheckPassword(req.CurrentPassword, currentHash) {
+		http.Error(w, `{"error":"current password is incorrect"}`, http.StatusUnauthorized)
+		return
+	}
+
+	newHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		http.Error(w, `{"error":"failed to hash new password"}`, http.StatusInternalServerError)
+		return
+	}
+
+	_, err = h.DB.Exec("UPDATE users SET password_hash = ? WHERE id = ?", newHash, authUser.ID)
+	if err != nil {
+		http.Error(w, `{"error":"failed to update password"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"message":"password changed successfully"}`))
+}

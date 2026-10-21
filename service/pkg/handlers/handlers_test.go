@@ -41,6 +41,8 @@ func setupTestRouter(t *testing.T) (*chi.Mux, *db.DB, []byte) {
 		api.Group(func(protected chi.Router) {
 			protected.Use(middleware.RequireAuth(jwtSecret, database))
 			protected.Get("/auth/me", authHandler.Me)
+			protected.Put("/auth/profile", authHandler.UpdateProfile)
+			protected.Put("/auth/password", authHandler.ChangePassword)
 
 			protected.Get("/locations", locationsHandler.List)
 			protected.Post("/locations", locationsHandler.Create)
@@ -235,5 +237,92 @@ func TestCompleteFlow(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &stats)
 	if stats.TotalDrives != 2 {
 		t.Errorf("Expected 2 total drives for Alice, got %d", stats.TotalDrives)
+	}
+}
+
+func TestAccountSettings(t *testing.T) {
+	router, database, _ := setupTestRouter(t)
+	defer database.Close()
+
+	// 1. Register User Charlie
+	regPayload := `{"username":"charlie","email":"charlie@example.com","password":"oldpassword123"}`
+	req := httptest.NewRequest("POST", "/api/auth/register", bytes.NewBufferString(regPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("Register failed: %d, body: %s", rec.Code, rec.Body.String())
+	}
+	var authResp handlers.AuthResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &authResp)
+	token := authResp.Token
+
+	// 2. Register User David (for duplicate checks)
+	davidPayload := `{"username":"david","email":"david@example.com","password":"password123"}`
+	req = httptest.NewRequest("POST", "/api/auth/register", bytes.NewBufferString(davidPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// 3. Test Profile Update - Duplicate Username Check
+	dupPayload := `{"username":"david","email":"charlie_new@example.com"}`
+	req = httptest.NewRequest("PUT", "/api/auth/profile", bytes.NewBufferString(dupPayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("Expected 409 Conflict for duplicate username, got %d", rec.Code)
+	}
+
+	// 4. Test Profile Update - Valid Update
+	validUpdate := `{"username":"charlie_updated","email":"charlie_updated@example.com"}`
+	req = httptest.NewRequest("PUT", "/api/auth/profile", bytes.NewBufferString(validUpdate))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for valid profile update, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var updatedAuth handlers.AuthResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &updatedAuth)
+	if updatedAuth.User.Username != "charlie_updated" || updatedAuth.User.Email != "charlie_updated@example.com" {
+		t.Errorf("Profile update mismatch: %+v", updatedAuth.User)
+	}
+	token = updatedAuth.Token // use new token
+
+	// 5. Test Change Password - Wrong Current Password
+	wrongPass := `{"current_password":"wrongpassword","new_password":"newsecurepassword"}`
+	req = httptest.NewRequest("PUT", "/api/auth/password", bytes.NewBufferString(wrongPass))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 Unauthorized for wrong current password, got %d", rec.Code)
+	}
+
+	// 6. Test Change Password - Valid Current Password
+	correctPass := `{"current_password":"oldpassword123","new_password":"newsecurepassword"}`
+	req = httptest.NewRequest("PUT", "/api/auth/password", bytes.NewBufferString(correctPass))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for valid password change, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 7. Verify login with new password and updated username
+	loginPayload := `{"username_or_email":"charlie_updated","password":"newsecurepassword"}`
+	req = httptest.NewRequest("POST", "/api/auth/login", bytes.NewBufferString(loginPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for login with new password, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

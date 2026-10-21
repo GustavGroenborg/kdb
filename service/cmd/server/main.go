@@ -116,8 +116,10 @@ func main() {
 		api.Group(func(protected chi.Router) {
 			protected.Use(middleware.RequireAuth(jwtSecret, database))
 
-			// User info
+			// User info & settings
 			protected.Get("/auth/me", authHandler.Me)
+			protected.Put("/auth/profile", authHandler.UpdateProfile)
+			protected.Put("/auth/password", authHandler.ChangePassword)
 
 			// Locations (Home, Workplaces, Universities)
 			protected.Get("/locations", locationsHandler.List)
