@@ -31,29 +31,18 @@ const getMonthDisplayName = (monthStr: string): string => {
   return monthStr;
 };
 
-const ROUTE_PALETTES = [
-  { bg: 'bg-brand-600', text: 'text-brand-600' },
+const HIGH_CONTRAST_ROUTE_COLORS = [
+  { bg: 'bg-blue-600', text: 'text-blue-600' },
   { bg: 'bg-emerald-500', text: 'text-emerald-600' },
+  { bg: 'bg-purple-600', text: 'text-purple-600' },
   { bg: 'bg-amber-500', text: 'text-amber-600' },
-  { bg: 'bg-purple-500', text: 'text-purple-600' },
   { bg: 'bg-rose-500', text: 'text-rose-600' },
   { bg: 'bg-cyan-500', text: 'text-cyan-600' },
-  { bg: 'bg-indigo-500', text: 'text-indigo-600' },
+  { bg: 'bg-indigo-600', text: 'text-indigo-600' },
   { bg: 'bg-teal-500', text: 'text-teal-600' },
+  { bg: 'bg-fuchsia-600', text: 'text-fuchsia-600' },
+  { bg: 'bg-orange-500', text: 'text-orange-600' },
 ];
-
-const getRoutePalette = (routeId: string, fallbackIndex: number) => {
-  if (routeId) {
-    let hash = 0;
-    for (let i = 0; i < routeId.length; i++) {
-      hash = (hash << 5) - hash + routeId.charCodeAt(i);
-      hash |= 0;
-    }
-    const idx = Math.abs(hash) % ROUTE_PALETTES.length;
-    return ROUTE_PALETTES[idx];
-  }
-  return ROUTE_PALETTES[fallbackIndex % ROUTE_PALETTES.length];
-};
 
 export const OverviewTab: React.FC = () => {
   const { activePermission, activeAccountName } = useAuth();
@@ -73,6 +62,33 @@ export const OverviewTab: React.FC = () => {
     fradrag: number;
     km: number;
   } | null>(null);
+
+  // Stable, collision-free color map ensuring each route gets a distinct color
+  const routeColorMap = React.useMemo(() => {
+    const map: Record<string, number> = {};
+    let nextIdx = 0;
+    routes.forEach((r) => {
+      if (r.id && map[r.id] === undefined) {
+        map[r.id] = nextIdx++;
+      }
+    });
+    stats?.monthly_breakdown?.forEach((m) => {
+      m.routes?.forEach((mr) => {
+        if (mr.route_id && map[mr.route_id] === undefined) {
+          map[mr.route_id] = nextIdx++;
+        }
+      });
+    });
+    return map;
+  }, [routes, stats?.monthly_breakdown]);
+
+  const getRoutePalette = (routeId: string, fallbackIndex: number) => {
+    const colorIdx =
+      routeId && routeColorMap[routeId] !== undefined
+        ? routeColorMap[routeId]
+        : fallbackIndex;
+    return HIGH_CONTRAST_ROUTE_COLORS[colorIdx % HIGH_CONTRAST_ROUTE_COLORS.length];
+  };
 
   const canWrite = activePermission === 'write';
 
@@ -304,7 +320,7 @@ export const OverviewTab: React.FC = () => {
                           {/* Multi-part Segmented Bar */}
                           <div
                             onClick={() => setActiveExpandedMonth(isExpanded ? null : m.month_name)}
-                            className="w-full bg-slate-100 rounded-full h-3.5 overflow-hidden cursor-pointer p-0.5 border border-slate-200/50 hover:border-slate-300 transition-colors"
+                            className="w-full bg-slate-100 rounded-full h-4 overflow-hidden cursor-pointer p-0.5 border border-slate-200/60 hover:border-slate-300 transition-colors"
                           >
                             <div
                               className="h-full rounded-full overflow-hidden flex transition-all duration-500 shadow-sm"
@@ -323,8 +339,8 @@ export const OverviewTab: React.FC = () => {
                                     <div
                                       key={route.route_id || rIdx}
                                       style={{ width: `${routeSharePct}%` }}
-                                      className={`h-full ${palette.bg} border-r border-white/20 last:border-r-0 transition-all duration-200 relative ${
-                                        isSegmentHovered ? 'brightness-110 ring-1 ring-white/50' : ''
+                                      className={`h-full ${palette.bg} border-r-[3px] border-white last:border-r-0 transition-all duration-200 relative ${
+                                        isSegmentHovered ? 'brightness-110 ring-2 ring-white' : ''
                                       }`}
                                       onMouseEnter={() =>
                                         setHoveredRoute({
