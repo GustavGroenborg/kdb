@@ -21,7 +21,7 @@ interface RegisterTabProps {
 }
 
 export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
-  const { activePermission, activeAccountName, isViewingSharedAccount } = useAuth();
+  const { activePermission, activeAccountName, isViewingSharedAccount, activeAccountId } = useAuth();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string>('');
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -66,7 +66,7 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
 
   useEffect(() => {
     fetchData();
-  }, [date, activeAccountName]);
+  }, [date, activeAccountId, activeAccountName]);
 
   const visibleRoutes = routes.filter((r) => !r.is_hidden);
   const selectedRoute = visibleRoutes.find((r) => r.id === selectedRouteId) || routes.find((r) => r.id === selectedRouteId);

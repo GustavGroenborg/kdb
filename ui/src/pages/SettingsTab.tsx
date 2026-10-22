@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 
 export const SettingsTab: React.FC = () => {
-  const { user, activePermission, activeAccountName, isViewingSharedAccount, refreshMe, updateUserSession } = useAuth();
+  const { user, activePermission, activeAccountName, activeAccountId, isViewingSharedAccount, refreshMe, updateUserSession } = useAuth();
   const canWrite = activePermission === 'write';
 
   const [locations, setLocations] = useState<Location[]>([]);
@@ -108,7 +108,7 @@ export const SettingsTab: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [activeAccountName]);
+  }, [activeAccountId, activeAccountName]);
 
   const showSuccess = (msg: string) => {
     setSuccessMsg(msg);

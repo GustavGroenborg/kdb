@@ -15,6 +15,7 @@ import {
   GraduationCap,
   ChevronDown,
   ChevronUp,
+  AlertTriangle,
 } from 'lucide-react';
 
 const MONTH_NAMES = [
@@ -45,7 +46,7 @@ const HIGH_CONTRAST_ROUTE_COLORS = [
 ];
 
 export const OverviewTab: React.FC = () => {
-  const { activePermission, activeAccountName } = useAuth();
+  const { activePermission, activeAccountName, activeAccountId, isViewingSharedAccount } = useAuth();
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
   const [stats, setStats] = useState<OverviewStats | null>(null);
   const [drives, setDrives] = useState<Drive[]>([]);
@@ -111,7 +112,7 @@ export const OverviewTab: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [selectedYear, selectedRouteFilter, activeAccountName]);
+  }, [selectedYear, selectedRouteFilter, activeAccountId, activeAccountName]);
 
   const handleDeleteDrive = async (id: string) => {
     if (!canWrite) return;
@@ -131,6 +132,19 @@ export const OverviewTab: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+      {/* Shared Account Banner */}
+      {isViewingSharedAccount && (
+        <div className="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs text-amber-800">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>
+              You are currently viewing <strong>{activeAccountName}</strong>.
+              {!canWrite && ' (Read-only mode)'}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Header and Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-6 border-b border-slate-200 mb-8 gap-4">
         <div>

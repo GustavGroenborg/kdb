@@ -11,11 +11,16 @@ import {
   LocationType,
 } from '../types';
 
-let currentTargetAccountId: string | null = null;
+let currentTargetAccountId: string | null = localStorage.getItem('kdb_target_account_id');
 let currentToken: string | null = localStorage.getItem('kdb_token');
 
 export const setTargetAccountId = (accountId: string | null) => {
   currentTargetAccountId = accountId;
+  if (accountId) {
+    localStorage.setItem('kdb_target_account_id', accountId);
+  } else {
+    localStorage.removeItem('kdb_target_account_id');
+  }
 };
 
 export const setAuthToken = (token: string | null) => {

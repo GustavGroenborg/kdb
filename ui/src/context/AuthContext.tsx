@@ -28,7 +28,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [hasRoutes, setHasRoutes] = useState<boolean>(false);
   const [hasHome, setHasHome] = useState<boolean>(false);
   const [sharedAccounts, setSharedAccounts] = useState<SharedAccountInfo[]>([]);
-  const [activeAccountId, setActiveAccountIdState] = useState<string | null>(null);
+  const [activeAccountId, setActiveAccountIdState] = useState<string | null>(() => {
+    return localStorage.getItem('kdb_target_account_id');
+  });
 
   const refreshMe = async () => {
     try {
@@ -36,7 +38,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(data.user);
       setHasRoutes(data.has_routes);
       setHasHome(data.has_home);
-      setSharedAccounts(data.shared_accounts || []);
+      const shares = data.shared_accounts || [];
+      setSharedAccounts(shares);
+
+      // Verify currently active account still exists in shares
+      const currentTarget = localStorage.getItem('kdb_target_account_id');
+      if (currentTarget && !shares.some((s) => s.owner_id === currentTarget)) {
+        setActiveAccountIdState(null);
+        setTargetAccountId(null);
+      }
     } catch {
       setUser(null);
       setAuthToken(null);
