@@ -13,7 +13,47 @@ import {
   Trash2,
   Building2,
   GraduationCap,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const getMonthDisplayName = (monthStr: string): string => {
+  const parts = monthStr.split('-');
+  const monthIdx = parseInt(parts[parts.length - 1], 10) - 1;
+  if (monthIdx >= 0 && monthIdx < 12) {
+    return MONTH_NAMES[monthIdx];
+  }
+  return monthStr;
+};
+
+const ROUTE_PALETTES = [
+  { bg: 'bg-brand-600', text: 'text-brand-600' },
+  { bg: 'bg-emerald-500', text: 'text-emerald-600' },
+  { bg: 'bg-amber-500', text: 'text-amber-600' },
+  { bg: 'bg-purple-500', text: 'text-purple-600' },
+  { bg: 'bg-rose-500', text: 'text-rose-600' },
+  { bg: 'bg-cyan-500', text: 'text-cyan-600' },
+  { bg: 'bg-indigo-500', text: 'text-indigo-600' },
+  { bg: 'bg-teal-500', text: 'text-teal-600' },
+];
+
+const getRoutePalette = (routeId: string, fallbackIndex: number) => {
+  if (routeId) {
+    let hash = 0;
+    for (let i = 0; i < routeId.length; i++) {
+      hash = (hash << 5) - hash + routeId.charCodeAt(i);
+      hash |= 0;
+    }
+    const idx = Math.abs(hash) % ROUTE_PALETTES.length;
+    return ROUTE_PALETTES[idx];
+  }
+  return ROUTE_PALETTES[fallbackIndex % ROUTE_PALETTES.length];
+};
 
 export const OverviewTab: React.FC = () => {
   const { activePermission, activeAccountName } = useAuth();
@@ -23,6 +63,16 @@ export const OverviewTab: React.FC = () => {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [selectedRouteFilter, setSelectedRouteFilter] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [activeExpandedMonth, setActiveExpandedMonth] = useState<string | null>(null);
+  const [hoveredRoute, setHoveredRoute] = useState<{
+    month: string;
+    routeId: string;
+    routeName: string;
+    trips: number;
+    pct: number;
+    fradrag: number;
+    km: number;
+  } | null>(null);
 
   const canWrite = activePermission === 'write';
 
@@ -183,41 +233,174 @@ export const OverviewTab: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
             {/* Monthly Breakdown */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center space-x-2">
-                <Calendar className="w-4 h-4 text-brand-600" />
-                <span>Monthly Deduction Breakdown</span>
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+                  <Calendar className="w-4 h-4 text-brand-600" />
+                  <span>Monthly Deduction Breakdown</span>
+                </h3>
+                <span className="text-[11px] text-slate-400 hidden sm:inline">
+                  Hover or tap bar for route trips
+                </span>
+              </div>
 
               {!stats?.monthly_breakdown || stats.monthly_breakdown.length === 0 ? (
                 <div className="text-xs text-slate-400 py-8 text-center">
                   No monthly activity recorded for {selectedYear}.
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {stats.monthly_breakdown.map((m) => {
                     const maxFradrag = Math.max(
                       ...stats.monthly_breakdown.map((item) => item.total_fradrag),
                       1
                     );
                     const pct = Math.min(100, Math.round((m.total_fradrag / maxFradrag) * 100));
+                    const isExpanded = activeExpandedMonth === m.month_name;
+                    const monthLabel = getMonthDisplayName(m.month_name);
 
                     return (
-                      <div key={m.month_name} className="text-xs">
-                        <div className="flex justify-between font-semibold text-slate-700 mb-1">
-                          <span>{m.month_name} ({m.drives_count} drives)</span>
-                          <span className="font-bold text-slate-900">
-                            {m.total_fradrag.toFixed(2)} DKK
-                          </span>
+                      <div
+                        key={m.month_name}
+                        className="text-xs group"
+                      >
+                        {/* Month header row */}
+                        <div
+                          onClick={() => setActiveExpandedMonth(isExpanded ? null : m.month_name)}
+                          className="flex justify-between items-center font-semibold text-slate-700 mb-1.5 cursor-pointer select-none"
+                        >
+                          <div className="flex items-center space-x-1.5">
+                            <span className="font-bold text-slate-800 text-sm">{monthLabel}</span>
+                            <span className="text-slate-400 font-normal text-xs">
+                              ({m.drives_count} {m.drives_count === 1 ? 'trip' : 'trips'})
+                            </span>
+                            <span className="text-[10px] text-slate-400 sm:hidden">
+                              {isExpanded ? (
+                                <ChevronUp className="w-3 h-3 inline" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3 inline" />
+                              )}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-bold text-slate-900">
+                              {m.total_fradrag.toFixed(2)} DKK
+                            </span>
+                          </div>
                         </div>
-                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+
+                        {/* Relative Tooltip Container for PC Hover */}
+                        <div className="relative">
+                          {hoveredRoute && hoveredRoute.month === m.month_name && (
+                            <div className="hidden sm:flex absolute -top-9 left-1/2 -translate-x-1/2 z-20 bg-slate-900 text-white text-[11px] px-2.5 py-1 rounded-lg shadow-lg pointer-events-none items-center space-x-2 whitespace-nowrap">
+                              <span className="font-semibold">{hoveredRoute.routeName}:</span>
+                              <span>
+                                {hoveredRoute.trips} {hoveredRoute.trips === 1 ? 'trip' : 'trips'} ({hoveredRoute.pct}%)
+                              </span>
+                              <span className="text-slate-400">•</span>
+                              <span className="text-brand-300 font-medium">{hoveredRoute.fradrag.toFixed(2)} DKK</span>
+                            </div>
+                          )}
+
+                          {/* Multi-part Segmented Bar */}
                           <div
-                            className="bg-brand-600 h-2.5 rounded-full transition-all duration-500"
-                            style={{ width: `${pct}%` }}
-                          ></div>
+                            onClick={() => setActiveExpandedMonth(isExpanded ? null : m.month_name)}
+                            className="w-full bg-slate-100 rounded-full h-3.5 overflow-hidden cursor-pointer p-0.5 border border-slate-200/50 hover:border-slate-300 transition-colors"
+                          >
+                            <div
+                              className="h-full rounded-full overflow-hidden flex transition-all duration-500 shadow-sm"
+                              style={{ width: `${Math.max(pct, 6)}%` }}
+                            >
+                              {m.routes && m.routes.length > 0 ? (
+                                m.routes.map((route, rIdx) => {
+                                  const routeSharePct =
+                                    m.drives_count > 0 ? (route.drives_count / m.drives_count) * 100 : 0;
+                                  const palette = getRoutePalette(route.route_id, rIdx);
+                                  const isSegmentHovered =
+                                    hoveredRoute?.month === m.month_name &&
+                                    hoveredRoute?.routeId === route.route_id;
+
+                                  return (
+                                    <div
+                                      key={route.route_id || rIdx}
+                                      style={{ width: `${routeSharePct}%` }}
+                                      className={`h-full ${palette.bg} border-r border-white/20 last:border-r-0 transition-all duration-200 relative ${
+                                        isSegmentHovered ? 'brightness-110 ring-1 ring-white/50' : ''
+                                      }`}
+                                      onMouseEnter={() =>
+                                        setHoveredRoute({
+                                          month: m.month_name,
+                                          routeId: route.route_id,
+                                          routeName: route.route_name,
+                                          trips: route.drives_count,
+                                          pct: Math.round(routeSharePct),
+                                          fradrag: route.total_fradrag,
+                                          km: route.distance_km,
+                                        })
+                                      }
+                                      onMouseLeave={() => setHoveredRoute(null)}
+                                      title={`${route.route_name}: ${route.drives_count} trips (${Math.round(routeSharePct)}%) • ${route.total_fradrag.toFixed(2)} DKK`}
+                                    />
+                                  );
+                                })
+                              ) : (
+                                <div className="h-full w-full bg-brand-600" />
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
-                          {m.distance_km.toFixed(1)} km traveled
+
+                        {/* Distance traveled summary & mobile tap trigger */}
+                        <div className="flex justify-between items-center text-[10px] text-slate-400 mt-1">
+                          <span>{m.distance_km.toFixed(1)} km traveled</span>
+                          <button
+                            type="button"
+                            onClick={() => setActiveExpandedMonth(isExpanded ? null : m.month_name)}
+                            className="text-brand-600 hover:text-brand-700 font-medium sm:hidden flex items-center space-x-0.5"
+                          >
+                            <span>{isExpanded ? 'Hide routes' : 'View routes'}</span>
+                            {isExpanded ? (
+                              <ChevronUp className="w-3 h-3" />
+                            ) : (
+                              <ChevronDown className="w-3 h-3" />
+                            )}
+                          </button>
                         </div>
+
+                        {/* Mobile & Tap-to-inspect Route Breakdown Drawer */}
+                        {isExpanded && m.routes && m.routes.length > 0 && (
+                          <div className="mt-2.5 p-3 bg-slate-50 border border-slate-200/80 rounded-xl space-y-2">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex justify-between pb-1 border-b border-slate-200/60">
+                              <span>Routes in {monthLabel}</span>
+                              <span>Trips / Deduction</span>
+                            </div>
+                            {m.routes.map((route, rIdx) => {
+                              const palette = getRoutePalette(route.route_id, rIdx);
+                              const routeSharePct =
+                                m.drives_count > 0 ? Math.round((route.drives_count / m.drives_count) * 100) : 0;
+                              return (
+                                <div
+                                  key={route.route_id || rIdx}
+                                  className="flex items-center justify-between text-xs py-0.5"
+                                >
+                                  <div className="flex items-center space-x-2 truncate pr-2">
+                                    <span className={`w-2.5 h-2.5 rounded-full ${palette.bg} shrink-0`} />
+                                    <span className="font-semibold text-slate-800 truncate">
+                                      {route.route_name}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center space-x-2 shrink-0">
+                                    <span className="text-slate-500 text-[11px]">
+                                      {route.total_fradrag.toFixed(2)} DKK
+                                    </span>
+                                    <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 text-[11px]">
+                                      {route.drives_count} {route.drives_count === 1 ? 'trip' : 'trips'} ({routeSharePct}%)
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

@@ -64,8 +64,46 @@ func (h *StatsHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 		for monthlyRows.Next() {
 			var m models.MonthlyStat
 			if err := monthlyRows.Scan(&m.MonthName, &m.DrivesCount, &m.DistanceKm, &m.TotalFradrag); err == nil {
+				m.Routes = make([]models.MonthlyRouteStat, 0)
 				stats.MonthlyBreakdown = append(stats.MonthlyBreakdown, m)
 			}
+		}
+	}
+
+	// 2b. Per-route breakdown for each month
+	monthlyRouteRows, err := h.DB.Query(`
+		SELECT 
+			substr(d.date, 1, 7) AS month_name,
+			d.route_id,
+			COALESCE(r.name, 'Deleted Route') AS route_name,
+			COALESCE(loc_dest.type, '') AS dest_type,
+			COUNT(d.id),
+			COALESCE(SUM(d.distance_km), 0),
+			COALESCE(SUM(d.calculated_fradrag), 0)
+		FROM drives d
+		LEFT JOIN routes r ON d.route_id = r.id
+		LEFT JOIN locations loc_dest ON r.destination_location_id = loc_dest.id
+		WHERE d.user_id = ? AND substr(d.date, 1, 4) = ?
+		GROUP BY substr(d.date, 1, 7), d.route_id, r.name, loc_dest.type
+		ORDER BY substr(d.date, 1, 7) ASC, COUNT(d.id) DESC
+	`, targetUserID, yearParam)
+
+	monthlyRoutesMap := make(map[string][]models.MonthlyRouteStat)
+	if err == nil {
+		defer monthlyRouteRows.Close()
+		for monthlyRouteRows.Next() {
+			var monthName string
+			var rs models.MonthlyRouteStat
+			if err := monthlyRouteRows.Scan(&monthName, &rs.RouteID, &rs.RouteName, &rs.DestinationType, &rs.DrivesCount, &rs.DistanceKm, &rs.TotalFradrag); err == nil {
+				monthlyRoutesMap[monthName] = append(monthlyRoutesMap[monthName], rs)
+			}
+		}
+	}
+
+	for i := range stats.MonthlyBreakdown {
+		mName := stats.MonthlyBreakdown[i].MonthName
+		if routes, ok := monthlyRoutesMap[mName]; ok {
+			stats.MonthlyBreakdown[i].Routes = routes
 		}
 	}
 

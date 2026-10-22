@@ -71,11 +71,21 @@ export interface MeResponse {
   shared_accounts: SharedAccountInfo[];
 }
 
+export interface MonthlyRouteStat {
+  route_id: string;
+  route_name: string;
+  destination_type?: string;
+  drives_count: number;
+  distance_km: number;
+  total_fradrag: number;
+}
+
 export interface MonthlyStat {
   month_name: string;
   drives_count: number;
   distance_km: number;
   total_fradrag: number;
+  routes?: MonthlyRouteStat[];
 }
 
 export interface RouteStat {

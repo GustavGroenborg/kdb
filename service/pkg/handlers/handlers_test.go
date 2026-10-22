@@ -205,6 +205,15 @@ func TestCompleteFlow(t *testing.T) {
 	if stats.TotalFradrag != 57.98 {
 		t.Errorf("Expected total fradrag 57.98, got %f", stats.TotalFradrag)
 	}
+	if len(stats.MonthlyBreakdown) != 1 {
+		t.Fatalf("Expected 1 monthly breakdown, got %d", len(stats.MonthlyBreakdown))
+	}
+	if len(stats.MonthlyBreakdown[0].Routes) != 1 {
+		t.Fatalf("Expected 1 route in monthly breakdown, got %d", len(stats.MonthlyBreakdown[0].Routes))
+	}
+	if stats.MonthlyBreakdown[0].Routes[0].DrivesCount != 1 {
+		t.Errorf("Expected 1 drive in route stat, got %d", stats.MonthlyBreakdown[0].Routes[0].DrivesCount)
+	}
 
 	// 7. Register Bob and test account sharing
 	bobReg := `{"username":"bob","email":"bob@example.com","password":"password123"}`

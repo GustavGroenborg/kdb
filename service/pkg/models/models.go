@@ -93,10 +93,20 @@ type OverviewStats struct {
 }
 
 type MonthlyStat struct {
-	MonthName    string  `json:"month_name"` // "2026-10"
-	DrivesCount  int     `json:"drives_count"`
-	DistanceKm   float64 `json:"distance_km"`
-	TotalFradrag float64 `json:"total_fradrag"`
+	MonthName    string             `json:"month_name"` // "2026-10"
+	DrivesCount  int                `json:"drives_count"`
+	DistanceKm   float64            `json:"distance_km"`
+	TotalFradrag float64            `json:"total_fradrag"`
+	Routes       []MonthlyRouteStat `json:"routes"`
+}
+
+type MonthlyRouteStat struct {
+	RouteID         string  `json:"route_id"`
+	RouteName       string  `json:"route_name"`
+	DestinationType string  `json:"destination_type,omitempty"`
+	DrivesCount     int     `json:"drives_count"`
+	DistanceKm      float64 `json:"distance_km"`
+	TotalFradrag    float64 `json:"total_fradrag"`
 }
 
 type RouteStat struct {
