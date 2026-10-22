@@ -12,6 +12,8 @@ import {
   PlusCircle,
   Trash2,
   MapPin,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface RegisterTabProps {
@@ -47,10 +49,13 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
       setRates(fetchedRates);
       setTodayDrives(fetchedDrives.filter((d) => d.date === date));
 
-      // Auto-select default route or first route
-      if (fetchedRoutes.length > 0) {
-        const defaultRoute = fetchedRoutes.find((r) => r.is_default) || fetchedRoutes[0];
+      // Auto-select default route or first visible route
+      const visible = fetchedRoutes.filter((r) => !r.is_hidden);
+      if (visible.length > 0) {
+        const defaultRoute = visible.find((r) => r.is_default) || visible[0];
         setSelectedRouteId(defaultRoute.id);
+      } else {
+        setSelectedRouteId('');
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to load routes');
@@ -63,7 +68,8 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
     fetchData();
   }, [date, activeAccountName]);
 
-  const selectedRoute = routes.find((r) => r.id === selectedRouteId);
+  const visibleRoutes = routes.filter((r) => !r.is_hidden);
+  const selectedRoute = visibleRoutes.find((r) => r.id === selectedRouteId) || routes.find((r) => r.id === selectedRouteId);
 
   // Compute live distance
   const currentDistance = distanceKmOverride
@@ -161,6 +167,31 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
     );
   }
 
+  // 1b. If routes exist but ALL are hidden:
+  if (visibleRoutes.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4">
+        <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-sm text-center">
+          <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <EyeOff className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">All Routes Are Hidden</h2>
+          <p className="text-sm text-slate-600 mb-6 max-w-md mx-auto">
+            You have configured routes, but all of them are currently hidden from the main page.
+            You can make them visible again anytime in Settings.
+          </p>
+          <button
+            onClick={onGoToSettings}
+            className="inline-flex items-center space-x-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-medium text-sm rounded-xl shadow transition-all"
+          >
+            <Eye className="w-4 h-4" />
+            <span>Go to Settings to Show Routes</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // 2. Default Page: Routes exist -> Prompt user to register a drive on that route
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6">
@@ -214,7 +245,7 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
               Select Route
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {routes.map((route) => {
+              {visibleRoutes.map((route) => {
                 const isSelected = route.id === selectedRouteId;
                 return (
                   <div

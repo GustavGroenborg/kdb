@@ -25,6 +25,7 @@ type CreateRouteRequest struct {
 	DistanceOneWayKm      float64 `json:"distance_one_way_km"`
 	DistanceRoundTripKm   float64 `json:"distance_round_trip_km"`
 	IsDefault             bool    `json:"is_default"`
+	IsHidden              bool    `json:"is_hidden"`
 }
 
 func (h *RoutesHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +36,7 @@ func (h *RoutesHandler) List(w http.ResponseWriter, r *http.Request) {
 			r.id, r.user_id, r.name, r.origin_location_id, r.destination_location_id,
 			loc_orig.name AS origin_name,
 			loc_dest.name AS destination_name,
-			r.distance_one_way_km, r.distance_round_trip_km, r.is_default, r.created_at
+			r.distance_one_way_km, r.distance_round_trip_km, r.is_default, r.is_hidden, r.created_at
 		FROM routes r
 		JOIN locations loc_orig ON r.origin_location_id = loc_orig.id
 		JOIN locations loc_dest ON r.destination_location_id = loc_dest.id
@@ -56,7 +57,7 @@ func (h *RoutesHandler) List(w http.ResponseWriter, r *http.Request) {
 			&route.OriginLocationID, &route.DestinationLocationID,
 			&route.OriginLocationName, &route.DestinationLocationName,
 			&route.DistanceOneWayKm, &route.DistanceRoundTripKm,
-			&route.IsDefault, &route.CreatedAt,
+			&route.IsDefault, &route.IsHidden, &route.CreatedAt,
 		); err != nil {
 			http.Error(w, `{"error":"failed to parse route data"}`, http.StatusInternalServerError)
 			return
@@ -113,16 +114,17 @@ func (h *RoutesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		DistanceOneWayKm:      req.DistanceOneWayKm,
 		DistanceRoundTripKm:   req.DistanceRoundTripKm,
 		IsDefault:             req.IsDefault,
+		IsHidden:              req.IsHidden,
 		CreatedAt:             time.Now().UTC(),
 	}
 
 	_, err := h.DB.Exec(`
 		INSERT INTO routes (
 			id, user_id, name, origin_location_id, destination_location_id,
-			distance_one_way_km, distance_round_trip_km, is_default, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			distance_one_way_km, distance_round_trip_km, is_default, is_hidden, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, route.ID, route.UserID, route.Name, route.OriginLocationID, route.DestinationLocationID,
-		route.DistanceOneWayKm, route.DistanceRoundTripKm, route.IsDefault, route.CreatedAt)
+		route.DistanceOneWayKm, route.DistanceRoundTripKm, route.IsDefault, route.IsHidden, route.CreatedAt)
 
 	if err != nil {
 		http.Error(w, `{"error":"failed to create route"}`, http.StatusInternalServerError)
@@ -168,10 +170,10 @@ func (h *RoutesHandler) Update(w http.ResponseWriter, r *http.Request) {
 	res, err := h.DB.Exec(`
 		UPDATE routes SET
 			name = ?, origin_location_id = ?, destination_location_id = ?,
-			distance_one_way_km = ?, distance_round_trip_km = ?, is_default = ?
+			distance_one_way_km = ?, distance_round_trip_km = ?, is_default = ?, is_hidden = ?
 		WHERE id = ? AND user_id = ?
 	`, req.Name, req.OriginLocationID, req.DestinationLocationID,
-		req.DistanceOneWayKm, req.DistanceRoundTripKm, req.IsDefault, routeID, targetUserID)
+		req.DistanceOneWayKm, req.DistanceRoundTripKm, req.IsDefault, req.IsHidden, routeID, targetUserID)
 
 	if err != nil {
 		http.Error(w, `{"error":"failed to update route"}`, http.StatusInternalServerError)
@@ -190,7 +192,7 @@ func (h *RoutesHandler) Update(w http.ResponseWriter, r *http.Request) {
 			r.id, r.user_id, r.name, r.origin_location_id, r.destination_location_id,
 			loc_orig.name AS origin_name,
 			loc_dest.name AS destination_name,
-			r.distance_one_way_km, r.distance_round_trip_km, r.is_default, r.created_at
+			r.distance_one_way_km, r.distance_round_trip_km, r.is_default, r.is_hidden, r.created_at
 		FROM routes r
 		JOIN locations loc_orig ON r.origin_location_id = loc_orig.id
 		JOIN locations loc_dest ON r.destination_location_id = loc_dest.id
@@ -200,7 +202,7 @@ func (h *RoutesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		&route.OriginLocationID, &route.DestinationLocationID,
 		&route.OriginLocationName, &route.DestinationLocationName,
 		&route.DistanceOneWayKm, &route.DistanceRoundTripKm,
-		&route.IsDefault, &route.CreatedAt,
+		&route.IsDefault, &route.IsHidden, &route.CreatedAt,
 	)
 
 	w.Header().Set("Content-Type", "application/json")

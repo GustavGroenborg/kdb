@@ -39,6 +39,7 @@ type Route struct {
 	DistanceOneWayKm      float64   `json:"distance_one_way_km"`
 	DistanceRoundTripKm   float64   `json:"distance_round_trip_km"`
 	IsDefault             bool      `json:"is_default"`
+	IsHidden              bool      `json:"is_hidden"`
 	CreatedAt             time.Time `json:"created_at"`
 }
 

@@ -19,6 +19,8 @@ import {
   UserCog,
   KeyRound,
   Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 export const SettingsTab: React.FC = () => {
@@ -210,6 +212,7 @@ export const SettingsTab: React.FC = () => {
 
     try {
       if (editingRouteId) {
+        const currentRoute = routes.find((r) => r.id === editingRouteId);
         await api.updateRoute(editingRouteId, {
           name: routeName.trim() || `Home ↔ Destination`,
           origin_location_id: homeLoc.id,
@@ -217,6 +220,7 @@ export const SettingsTab: React.FC = () => {
           distance_one_way_km: oneWay || roundTrip / 2,
           distance_round_trip_km: roundTrip,
           is_default: routeIsDefault,
+          is_hidden: currentRoute?.is_hidden || false,
         });
         showSuccess('Route updated successfully!');
       } else {
@@ -227,6 +231,7 @@ export const SettingsTab: React.FC = () => {
           distance_one_way_km: oneWay || roundTrip / 2,
           distance_round_trip_km: roundTrip,
           is_default: routeIsDefault,
+          is_hidden: false,
         });
         showSuccess('Route created successfully!');
       }
@@ -236,6 +241,31 @@ export const SettingsTab: React.FC = () => {
       await refreshMe();
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to save route');
+    }
+  };
+
+  // Toggle Route Visibility (Show / Hide on main page)
+  const handleToggleRouteVisibility = async (r: Route) => {
+    if (!canWrite) return;
+    try {
+      const newHiddenState = !r.is_hidden;
+      const updated = await api.updateRoute(r.id, {
+        name: r.name,
+        origin_location_id: r.origin_location_id,
+        destination_location_id: r.destination_location_id,
+        distance_one_way_km: r.distance_one_way_km,
+        distance_round_trip_km: r.distance_round_trip_km,
+        is_default: r.is_default,
+        is_hidden: newHiddenState,
+      });
+      setRoutes((prev) => prev.map((item) => (item.id === r.id ? updated : item)));
+      showSuccess(
+        newHiddenState
+          ? `Route "${r.name}" hidden from main page.`
+          : `Route "${r.name}" is now visible on main page.`
+      );
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update route visibility');
     }
   };
 
@@ -726,15 +756,41 @@ export const SettingsTab: React.FC = () => {
                       <td className="py-2.5 px-3 text-slate-500">{r.destination_location_name}</td>
                       <td className="py-2.5 px-3 font-bold text-slate-800">{r.distance_round_trip_km} km</td>
                       <td className="py-2.5 px-3">
-                        {r.is_default && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 font-bold uppercase">
-                            Default
-                          </span>
-                        )}
+                        <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                          {r.is_default && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 font-bold uppercase">
+                              Default
+                            </span>
+                          )}
+                          {r.is_hidden && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium uppercase">
+                              Hidden
+                            </span>
+                          )}
+                        </div>
                       </td>
                       {canWrite && (
                         <td className="py-2.5 px-3 text-right">
                           <div className="flex items-center justify-end space-x-1">
+                            <button
+                              onClick={() => handleToggleRouteVisibility(r)}
+                              className={`p-1 rounded transition-colors ${
+                                r.is_hidden
+                                  ? 'text-amber-600 hover:text-amber-700 hover:bg-amber-50'
+                                  : 'text-slate-400 hover:text-brand-600 hover:bg-brand-50'
+                              }`}
+                              title={
+                                r.is_hidden
+                                  ? 'Hidden from main page — click to show'
+                                  : 'Visible on main page — click to hide'
+                              }
+                            >
+                              {r.is_hidden ? (
+                                <EyeOff className="w-3.5 h-3.5" />
+                              ) : (
+                                <Eye className="w-3.5 h-3.5" />
+                              )}
+                            </button>
                             <button
                               onClick={() => handleStartEditRoute(r)}
                               className={`p-1 rounded transition-colors ${

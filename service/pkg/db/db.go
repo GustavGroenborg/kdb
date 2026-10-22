@@ -79,6 +79,7 @@ func InitDB(dataSourceName string) (*DB, error) {
 		distance_one_way_km REAL NOT NULL,
 		distance_round_trip_km REAL NOT NULL,
 		is_default BOOLEAN NOT NULL DEFAULT 0,
+		is_hidden BOOLEAN NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL
 	);
 
@@ -131,6 +132,25 @@ func InitDB(dataSourceName string) (*DB, error) {
 
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
+	}
+
+	// Idempotent column migrations for existing databases
+	var hasIsHidden bool
+	if rows, err := db.Query("PRAGMA table_info(routes);"); err == nil {
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil && name == "is_hidden" {
+				hasIsHidden = true
+				break
+			}
+		}
+		rows.Close()
+	}
+	if !hasIsHidden {
+		_, _ = db.Exec("ALTER TABLE routes ADD COLUMN is_hidden BOOLEAN NOT NULL DEFAULT 0;")
 	}
 
 	return &DB{DB: db}, nil

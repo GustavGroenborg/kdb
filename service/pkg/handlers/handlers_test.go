@@ -133,9 +133,12 @@ func TestCompleteFlow(t *testing.T) {
 	}
 	var route models.Route
 	_ = json.Unmarshal(rec.Body.Bytes(), &route)
+	if route.IsHidden {
+		t.Errorf("Expected newly created route to have IsHidden=false, got true")
+	}
 
-	// 4b. Update Route (change name and distance to 60 km round trip, then revert to 50 for drive test)
-	updatePayload := `{"name":"Home <-> Tech Corp HQ","origin_location_id":"` + home.ID + `","destination_location_id":"` + workplace.ID + `","distance_one_way_km":25,"distance_round_trip_km":50,"is_default":true}`
+	// 4b. Update Route (change name, test hiding route)
+	updatePayload := `{"name":"Home <-> Tech Corp HQ","origin_location_id":"` + home.ID + `","destination_location_id":"` + workplace.ID + `","distance_one_way_km":25,"distance_round_trip_km":50,"is_default":true,"is_hidden":true}`
 	req = httptest.NewRequest("PUT", "/api/routes/"+route.ID, bytes.NewBufferString(updatePayload))
 	req.Header.Set("Authorization", "Bearer "+aliceToken)
 	req.Header.Set("Content-Type", "application/json")
@@ -147,8 +150,19 @@ func TestCompleteFlow(t *testing.T) {
 	}
 	var updatedRoute models.Route
 	_ = json.Unmarshal(rec.Body.Bytes(), &updatedRoute)
-	if updatedRoute.Name != "Home <-> Tech Corp HQ" || updatedRoute.DistanceRoundTripKm != 50.0 {
+	if updatedRoute.Name != "Home <-> Tech Corp HQ" || updatedRoute.DistanceRoundTripKm != 50.0 || !updatedRoute.IsHidden {
 		t.Errorf("Unexpected updated route: %+v", updatedRoute)
+	}
+
+	// Unhide route for subsequent tests
+	unhidePayload := `{"name":"Home <-> Tech Corp HQ","origin_location_id":"` + home.ID + `","destination_location_id":"` + workplace.ID + `","distance_one_way_km":25,"distance_round_trip_km":50,"is_default":true,"is_hidden":false}`
+	req = httptest.NewRequest("PUT", "/api/routes/"+route.ID, bytes.NewBufferString(unhidePayload))
+	req.Header.Set("Authorization", "Bearer "+aliceToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Unhide route failed: status %d, body: %s", rec.Code, rec.Body.String())
 	}
 
 	// 5. Register Drive (50 km round trip)

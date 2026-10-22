@@ -129,6 +129,7 @@ export const api = {
     distance_one_way_km?: number;
     distance_round_trip_km?: number;
     is_default?: boolean;
+    is_hidden?: boolean;
   }) =>
     request<Route>('/api/routes', {
       method: 'POST',
@@ -144,6 +145,7 @@ export const api = {
       distance_one_way_km?: number;
       distance_round_trip_km?: number;
       is_default?: boolean;
+      is_hidden?: boolean;
     }
   ) =>
     request<Route>(`/api/routes/${id}`, {

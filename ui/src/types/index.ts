@@ -28,6 +28,7 @@ export interface Route {
   distance_one_way_km: number;
   distance_round_trip_km: number;
   is_default: boolean;
+  is_hidden?: boolean;
   created_at: string;
 }
 
