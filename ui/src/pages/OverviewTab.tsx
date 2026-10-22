@@ -58,7 +58,6 @@ export const OverviewTab: React.FC = () => {
     routeId: string;
     routeName: string;
     trips: number;
-    pct: number;
     fradrag: number;
     km: number;
   } | null>(null);
@@ -310,7 +309,7 @@ export const OverviewTab: React.FC = () => {
                             <div className="hidden sm:flex absolute -top-9 left-1/2 -translate-x-1/2 z-20 bg-slate-900 text-white text-[11px] px-2.5 py-1 rounded-lg shadow-lg pointer-events-none items-center space-x-2 whitespace-nowrap">
                               <span className="font-semibold">{hoveredRoute.routeName}:</span>
                               <span>
-                                {hoveredRoute.trips} {hoveredRoute.trips === 1 ? 'trip' : 'trips'} ({hoveredRoute.pct}%)
+                                {hoveredRoute.trips} {hoveredRoute.trips === 1 ? 'trip' : 'trips'}
                               </span>
                               <span className="text-slate-400">•</span>
                               <span className="text-brand-300 font-medium">{hoveredRoute.fradrag.toFixed(2)} DKK</span>
@@ -348,13 +347,12 @@ export const OverviewTab: React.FC = () => {
                                           routeId: route.route_id,
                                           routeName: route.route_name,
                                           trips: route.drives_count,
-                                          pct: Math.round(routeSharePct),
                                           fradrag: route.total_fradrag,
                                           km: route.distance_km,
                                         })
                                       }
                                       onMouseLeave={() => setHoveredRoute(null)}
-                                      title={`${route.route_name}: ${route.drives_count} trips (${Math.round(routeSharePct)}%) • ${route.total_fradrag.toFixed(2)} DKK`}
+                                      title={`${route.route_name}: ${route.drives_count} ${route.drives_count === 1 ? 'trip' : 'trips'} • ${route.total_fradrag.toFixed(2)} DKK`}
                                     />
                                   );
                                 })
@@ -391,8 +389,6 @@ export const OverviewTab: React.FC = () => {
                             </div>
                             {m.routes.map((route, rIdx) => {
                               const palette = getRoutePalette(route.route_id, rIdx);
-                              const routeSharePct =
-                                m.drives_count > 0 ? Math.round((route.drives_count / m.drives_count) * 100) : 0;
                               return (
                                 <div
                                   key={route.route_id || rIdx}
@@ -409,7 +405,7 @@ export const OverviewTab: React.FC = () => {
                                       {route.total_fradrag.toFixed(2)} DKK
                                     </span>
                                     <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 text-[11px]">
-                                      {route.drives_count} {route.drives_count === 1 ? 'trip' : 'trips'} ({routeSharePct}%)
+                                      {route.drives_count} {route.drives_count === 1 ? 'trip' : 'trips'}
                                     </span>
                                   </div>
                                 </div>
