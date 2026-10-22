@@ -224,7 +224,7 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6">
           {successMsg && (
             <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center space-x-2">
               <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
@@ -283,17 +283,17 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Date Selection */}
-            <div>
+            <div className="min-w-0">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                 Commute Date
               </label>
-              <div className="relative">
-                <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <div className="relative min-w-0">
+                <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none z-10" />
                 <input
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className="w-full min-w-0 max-w-full block pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
                 />
               </div>
               <div className="mt-2 flex space-x-2 text-xs">
@@ -319,7 +319,7 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
             </div>
 
             {/* Custom Distance Override */}
-            <div>
+            <div className="min-w-0">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                 Distance Override (Optional)
               </label>
@@ -330,7 +330,7 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
                 value={distanceKmOverride}
                 onChange={(e) => setDistanceKmOverride(e.target.value)}
                 placeholder={`Default: ${selectedRoute?.distance_round_trip_km || 0} km`}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
+                className="w-full min-w-0 max-w-full block px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
               <span className="text-[11px] text-slate-500 mt-1 block">
                 Leave blank to use default round-trip distance.
