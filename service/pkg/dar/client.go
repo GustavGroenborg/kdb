@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,11 +22,14 @@ var (
 	ErrAddressNotFound = errors.New("address not found in DAR")
 )
 
-const DefaultEndpoint = "https://services.datafordeler.dk/DAR/DAR/1/rest/graphql"
+const DefaultEndpoint = "https://graphql.datafordeler.dk/DAR/v3"
+
+var postalCodeRegex = regexp.MustCompile(`\b([1-9][0-9]{3})\b`)
 
 // LoadDARToken retrieves the Datafordeleren DAR API token according to security standards:
 // 1. systemd credentials directory ($CREDENTIALS_DIRECTORY/dar_token)
-// 2. DAR_API_TOKEN environment variable (or .env file)
+// 2. DAR_API_TOKEN environment variable
+// 3. .env file in the current working directory
 func LoadDARToken() string {
 	if credDir := os.Getenv("CREDENTIALS_DIRECTORY"); credDir != "" {
 		if data, err := os.ReadFile(filepath.Join(credDir, "dar_token")); err == nil {
@@ -35,7 +39,23 @@ func LoadDARToken() string {
 			}
 		}
 	}
-	return strings.TrimSpace(os.Getenv("DAR_API_TOKEN"))
+	if token := strings.TrimSpace(os.Getenv("DAR_API_TOKEN")); token != "" {
+		return token
+	}
+	if data, err := os.ReadFile(".env"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "DAR_API_TOKEN=") {
+				val := strings.TrimPrefix(line, "DAR_API_TOKEN=")
+				val = strings.TrimSpace(val)
+				val = strings.Trim(val, `"'`)
+				if val != "" {
+					return val
+				}
+			}
+		}
+	}
+	return ""
 }
 
 type Client struct {
@@ -61,6 +81,12 @@ type AddressResult struct {
 	IsYderkommune   bool   `json:"is_yderkommune"`
 }
 
+type nodeItem struct {
+	Adgangsadressebetegnelse string `json:"adgangsadressebetegnelse"`
+	Vejmidte                 string `json:"vejmidte"`
+	Status                   string `json:"status"`
+}
+
 type graphQLRequest struct {
 	Query     string                 `json:"query"`
 	Variables map[string]interface{} `json:"variables"`
@@ -69,11 +95,7 @@ type graphQLRequest struct {
 type graphQLResponse struct {
 	Data struct {
 		DARHusnummer struct {
-			Nodes []struct {
-				Adgangsadressebetegnelse string `json:"adgangsadressebetegnelse"`
-				Vejmidte                 string `json:"vejmidte"`
-				Status                   string `json:"status"`
-			} `json:"nodes"`
+			Nodes []nodeItem `json:"nodes"`
 		} `json:"DAR_Husnummer"`
 	} `json:"data"`
 	Errors []struct {
@@ -82,13 +104,12 @@ type graphQLResponse struct {
 }
 
 const lookupQuery = `
-query LookupAddress($address: String!, $now: DafDateTime!) {
+query LookupAddress($address: String!, $now: DafDateTime!, $first: Int!) {
   DAR_Husnummer(
     virkningstid: $now
-    first: 5
+    first: $first
     where: {
       adgangsadressebetegnelse: { startsWith: $address }
-      status: { eq: "gældende" }
     }
   ) {
     nodes {
@@ -100,24 +121,16 @@ query LookupAddress($address: String!, $now: DafDateTime!) {
 }
 `
 
-// LookupAddress queries the DAR GraphQL API to resolve the given address to a Danish municipality.
-func (c *Client) LookupAddress(ctx context.Context, address string) (*AddressResult, error) {
-	if strings.TrimSpace(c.Token) == "" {
-		return nil, ErrNoToken
-	}
-
-	trimmedAddress := strings.TrimSpace(address)
-	if trimmedAddress == "" {
-		return nil, ErrAddressNotFound
-	}
-
+// executeQuery sends a query to the DAR GraphQL API.
+func (c *Client) executeQuery(ctx context.Context, search string, first int) ([]nodeItem, error) {
 	nowISO := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
 
 	reqPayload := graphQLRequest{
 		Query: lookupQuery,
 		Variables: map[string]interface{}{
-			"address": trimmedAddress,
+			"address": search,
 			"now":     nowISO,
+			"first":   first,
 		},
 	}
 
@@ -126,7 +139,16 @@ func (c *Client) LookupAddress(ctx context.Context, address string) (*AddressRes
 		return nil, fmt.Errorf("failed to encode request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader(reqBytes))
+	endpoint := c.Endpoint
+	if strings.Contains(endpoint, "graphql.datafordeler.dk") && !strings.Contains(endpoint, "apiKey=") {
+		if strings.Contains(endpoint, "?") {
+			endpoint += "&apiKey=" + c.Token
+		} else {
+			endpoint += "?apiKey=" + c.Token
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(reqBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -154,7 +176,60 @@ func (c *Client) LookupAddress(ctx context.Context, address string) (*AddressRes
 		return nil, fmt.Errorf("DAR GraphQL error: %s", gqlResp.Errors[0].Message)
 	}
 
-	nodes := gqlResp.Data.DARHusnummer.Nodes
+	return gqlResp.Data.DARHusnummer.Nodes, nil
+}
+
+// LookupAddress queries the DAR GraphQL API to resolve the given address to a Danish municipality.
+// It supports standard addresses as well as addresses containing a supplerende bynavn (e.g. Mjallerup in 9670 Løgstør).
+func (c *Client) LookupAddress(ctx context.Context, address string) (*AddressResult, error) {
+	if strings.TrimSpace(c.Token) == "" {
+		return nil, ErrNoToken
+	}
+
+	trimmedAddress := strings.TrimSpace(address)
+	if trimmedAddress == "" {
+		return nil, ErrAddressNotFound
+	}
+
+	// 1. First attempt: exact startsWith match with full input
+	nodes, err := c.executeQuery(ctx, trimmedAddress, 10)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Second attempt: address might have an omitted supplerende bynavn in user input.
+	// E.g. "Højgårdsvej 9, 9670 Løgstør" where official DAR address is "Højgårdsvej 9, Mjallerup, 9670 Løgstør".
+	if len(nodes) == 0 {
+		postcodeMatch := postalCodeRegex.FindString(trimmedAddress)
+
+		var streetPrefix string
+		if commaIdx := strings.Index(trimmedAddress, ","); commaIdx > 0 {
+			streetPrefix = strings.TrimSpace(trimmedAddress[:commaIdx])
+		} else if postcodeMatch != "" {
+			idx := strings.Index(trimmedAddress, postcodeMatch)
+			streetPrefix = strings.TrimSpace(trimmedAddress[:idx])
+		} else {
+			streetPrefix = trimmedAddress
+		}
+
+		if streetPrefix != "" {
+			// Query with comma e.g. "Højgårdsvej 9, "
+			candidates, err := c.executeQuery(ctx, streetPrefix+", ", 500)
+			if err == nil && len(candidates) > 0 {
+				if postcodeMatch != "" {
+					for _, cand := range candidates {
+						if strings.Contains(cand.Adgangsadressebetegnelse, postcodeMatch) {
+							nodes = []nodeItem{cand}
+							break
+						}
+					}
+				} else {
+					nodes = candidates
+				}
+			}
+		}
+	}
+
 	if len(nodes) == 0 {
 		return nil, ErrAddressNotFound
 	}
