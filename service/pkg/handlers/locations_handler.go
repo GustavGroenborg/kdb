@@ -75,6 +75,21 @@ func (h *LocationsHandler) List(w http.ResponseWriter, r *http.Request) {
 		loc.KommuneName = kName.String
 		loc.IsYderkommune = isYder.Bool
 		loc.IsDARApproved = isDar.Bool
+
+		// Auto-heal previously unresolved home addresses
+		if loc.Type == models.LocationTypeHome && (loc.KommuneCode == "" || loc.KommuneName == "") {
+			if resolvedKCode, resolvedKName, resolvedIsYder := h.resolveKommune(r.Context(), loc.Address); resolvedKCode != "" {
+				loc.KommuneCode = resolvedKCode
+				loc.KommuneName = resolvedKName
+				loc.IsYderkommune = resolvedIsYder
+				loc.IsDARApproved = true
+				_, _ = h.DB.Exec(
+					"UPDATE locations SET kommune_code = ?, kommune_name = ?, is_yderkommune = ?, is_dar_approved = 1 WHERE id = ?",
+					resolvedKCode, resolvedKName, resolvedIsYder, loc.ID,
+				)
+			}
+		}
+
 		locations = append(locations, loc)
 	}
 

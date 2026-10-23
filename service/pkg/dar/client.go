@@ -239,18 +239,110 @@ func (c *Client) executeQuery(ctx context.Context, search string, first int) ([]
 	return gqlResp.Data.DARHusnummer.Nodes, nil
 }
 
-// LookupAddress queries the DAR GraphQL API to resolve the given address to a Danish municipality.
-// It supports standard addresses as well as addresses containing a supplerende bynavn (e.g. Mjallerup in 9670 Løgstør).
-func (c *Client) LookupAddress(ctx context.Context, address string) (*AddressResult, error) {
-	if strings.TrimSpace(c.Token) == "" {
-		return nil, ErrNoToken
-	}
+type adressevaelgerDetailsResponse struct {
+	Status  string `json:"status"`
+	Adresse struct {
+		Adressebetegnelse string `json:"adressebetegnelse"`
+		Husnummer         struct {
+			Navngivenvejkommunedel struct {
+				Kommune string `json:"kommune"`
+			} `json:"navngivenvejkommunedel"`
+		} `json:"husnummer"`
+	} `json:"adresse"`
+}
 
+// LookupAddress queries DAR APIs to resolve the given address to a Danish municipality.
+// It queries Datafordeleren GraphQL v3 if a token is configured, and seamlessly falls back
+// to Klimadatastyrelsen's official Adressevælgeren DAR endpoint, guaranteeing high availability.
+func (c *Client) LookupAddress(ctx context.Context, address string) (*AddressResult, error) {
 	trimmedAddress := strings.TrimSpace(address)
 	if trimmedAddress == "" {
 		return nil, ErrAddressNotFound
 	}
 
+	// 1. First attempt: Datafordeleren GraphQL v3 (if token is configured)
+	if strings.TrimSpace(c.Token) != "" {
+		res, err := c.lookupViaGraphQL(ctx, trimmedAddress)
+		if err == nil && res != nil {
+			return res, nil
+		}
+	}
+
+	// 2. Fallback attempt: Adressevælgeren DAR API
+	res, err := c.lookupViaAdressevaelger(ctx, trimmedAddress)
+	if err == nil && res != nil {
+		return res, nil
+	}
+
+	if strings.TrimSpace(c.Token) == "" {
+		return nil, ErrNoToken
+	}
+	return nil, ErrAddressNotFound
+}
+
+func (c *Client) lookupViaAdressevaelger(ctx context.Context, address string) (*AddressResult, error) {
+	suggestions, err := c.Autocomplete(ctx, address)
+	if err != nil || len(suggestions) == 0 {
+		return nil, ErrAddressNotFound
+	}
+
+	targetID := suggestions[0].ID
+	if targetID == "" {
+		return nil, ErrAddressNotFound
+	}
+
+	token := strings.TrimSpace(c.Token)
+	if token == "" {
+		token = DefaultFallbackToken
+	}
+
+	endpoint := "https://adressevaelger.dk/adresser"
+	reqURL := fmt.Sprintf("%s/%s?token=%s", endpoint, url.PathEscape(targetID), url.QueryEscape(token))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, ErrAddressNotFound
+	}
+
+	var details adressevaelgerDetailsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
+		return nil, err
+	}
+
+	kommuneCode := strings.TrimSpace(details.Adresse.Husnummer.Navngivenvejkommunedel.Kommune)
+	if kommuneCode == "" {
+		return nil, ErrAddressNotFound
+	}
+
+	name, isYder, found := kommune.LookupKommune(kommuneCode)
+	if !found {
+		name = fmt.Sprintf("Kommune %s", kommuneCode)
+	}
+
+	resolvedAddr := details.Adresse.Adressebetegnelse
+	if resolvedAddr == "" {
+		resolvedAddr = suggestions[0].Text
+	}
+
+	return &AddressResult{
+		ResolvedAddress: resolvedAddr,
+		KommuneCode:     kommuneCode,
+		KommuneName:     name,
+		IsYderkommune:   isYder,
+	}, nil
+}
+
+func (c *Client) lookupViaGraphQL(ctx context.Context, trimmedAddress string) (*AddressResult, error) {
 	// 1. First attempt: exact startsWith match with full input
 	nodes, err := c.executeQuery(ctx, trimmedAddress, 10)
 	if err != nil {

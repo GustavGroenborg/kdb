@@ -145,10 +145,17 @@ func TestLookupAddress_NotFound(t *testing.T) {
 }
 
 func TestLookupAddress_NoToken(t *testing.T) {
+	// When token is empty, client should fall back to Adressevælgeren and succeed
 	client := NewClient("")
-	_, err := client.LookupAddress(context.Background(), "Strandvejen 1")
-	if err != ErrNoToken {
-		t.Fatalf("got error %v, want ErrNoToken", err)
+	res, err := client.LookupAddress(context.Background(), "Højgårdsvej 9, 9670 Løgstør")
+	if err != nil {
+		t.Fatalf("unexpected error with fallback: %v", err)
+	}
+	if res.KommuneCode != "0820" {
+		t.Errorf("got KommuneCode %s, want 0820", res.KommuneCode)
+	}
+	if !res.IsYderkommune {
+		t.Errorf("got IsYderkommune false, want true")
 	}
 }
 
