@@ -31,8 +31,9 @@ func InitDB(dataSourceName string) (*DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Configure connection pool for SQLite
-	db.SetMaxOpenConns(1) // recommended for SQLite to avoid lock contention
+	// Configure connection pool for SQLite in WAL mode
+	db.SetMaxOpenConns(5)
+	db.SetMaxIdleConns(5)
 
 	// Execute initial pragmas
 	pragmas := []string{

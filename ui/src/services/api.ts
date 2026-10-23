@@ -47,29 +47,37 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers.set('X-Account-ID', currentTargetAccountId);
   }
 
-  const res = await fetch(endpoint, {
-    ...options,
-    headers,
-    credentials: 'include',
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-  if (!res.ok) {
-    let errorMsg = 'An error occurred';
-    try {
-      const errorData = await res.json();
-      errorMsg = errorData.error || errorMsg;
-    } catch {
-      errorMsg = res.statusText || errorMsg;
+  try {
+    const res = await fetch(endpoint, {
+      ...options,
+      headers,
+      credentials: 'include',
+      signal: options.signal || controller.signal,
+    });
+
+    if (!res.ok) {
+      let errorMsg = 'An error occurred';
+      try {
+        const errorData = await res.json();
+        errorMsg = errorData.error || errorMsg;
+      } catch {
+        errorMsg = res.statusText || errorMsg;
+      }
+      throw new Error(errorMsg);
     }
-    throw new Error(errorMsg);
-  }
 
-  // Handle empty or 204 response
-  const contentType = res.headers.get('content-type');
-  if (contentType && contentType.includes('application/json')) {
-    return res.json();
+    // Handle empty or 204 response
+    const contentType = res.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return res.json();
+    }
+    return {} as T;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return {} as T;
 }
 
 export const api = {
