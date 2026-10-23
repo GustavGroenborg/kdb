@@ -123,18 +123,6 @@ func InitDB(dataSourceName string) (*DB, error) {
 		tier2_rate REAL NOT NULL DEFAULT 1.12,
 		yderkommune_rate REAL NOT NULL DEFAULT 2.23
 	);
-
-	INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate)
-	VALUES (2024, 24.0, 2.23, 120.0, 1.12, 2.23)
-	ON CONFLICT(year) DO UPDATE SET base_rate=excluded.base_rate, tier2_rate=excluded.tier2_rate, yderkommune_rate=excluded.yderkommune_rate;
-
-	INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate)
-	VALUES (2025, 24.0, 2.23, 120.0, 1.12, 2.23)
-	ON CONFLICT(year) DO UPDATE SET base_rate=excluded.base_rate, tier2_rate=excluded.tier2_rate, yderkommune_rate=excluded.yderkommune_rate;
-
-	INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate)
-	VALUES (2026, 24.0, 3.17, 120.0, 1.59, 3.51)
-	ON CONFLICT(year) DO UPDATE SET base_rate=excluded.base_rate, tier2_rate=excluded.tier2_rate, yderkommune_rate=excluded.yderkommune_rate;
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -201,6 +189,24 @@ func InitDB(dataSourceName string) (*DB, error) {
 	}
 	if !hasYderkommuneRate {
 		_, _ = db.Exec("ALTER TABLE tax_rates ADD COLUMN yderkommune_rate REAL NOT NULL DEFAULT 2.23;")
+	}
+
+	// Upsert official tax rates
+	seedRates := `
+	INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate)
+	VALUES (2024, 24.0, 2.23, 120.0, 1.12, 2.23)
+	ON CONFLICT(year) DO UPDATE SET base_rate=excluded.base_rate, tier2_rate=excluded.tier2_rate, yderkommune_rate=excluded.yderkommune_rate;
+
+	INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate)
+	VALUES (2025, 24.0, 2.23, 120.0, 1.12, 2.23)
+	ON CONFLICT(year) DO UPDATE SET base_rate=excluded.base_rate, tier2_rate=excluded.tier2_rate, yderkommune_rate=excluded.yderkommune_rate;
+
+	INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate)
+	VALUES (2026, 24.0, 3.17, 120.0, 1.59, 3.51)
+	ON CONFLICT(year) DO UPDATE SET base_rate=excluded.base_rate, tier2_rate=excluded.tier2_rate, yderkommune_rate=excluded.yderkommune_rate;
+	`
+	if _, err := db.Exec(seedRates); err != nil {
+		return nil, fmt.Errorf("failed to seed tax rates: %w", err)
 	}
 
 
