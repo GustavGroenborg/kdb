@@ -22,6 +22,7 @@ type AuthUser struct {
 	ID       string
 	Username string
 	Email    string
+	IsAdmin  bool
 }
 
 // RequireAuth ensures that the request is authenticated with a valid JWT token.
@@ -54,10 +55,14 @@ func RequireAuth(jwtSecret []byte, database *db.DB) func(http.Handler) http.Hand
 				return
 			}
 
+			var isAdmin bool
+			_ = database.QueryRow("SELECT is_admin FROM users WHERE id = ?", claims.UserID).Scan(&isAdmin)
+
 			authUser := AuthUser{
 				ID:       claims.UserID,
 				Username: claims.Username,
 				Email:    claims.Email,
+				IsAdmin:  isAdmin,
 			}
 
 			targetUserID := authUser.ID
@@ -118,4 +123,16 @@ func GetTargetPermission(ctx context.Context) models.SharePermission {
 		return perm
 	}
 	return models.SharePermissionWrite
+}
+
+// RequireAdmin ensures that the authenticated user is an administrator.
+func RequireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authUser, ok := GetAuthUser(r.Context())
+		if !ok || !authUser.IsAdmin {
+			http.Error(w, `{"error":"forbidden: admin access required"}`, http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

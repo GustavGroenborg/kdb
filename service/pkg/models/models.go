@@ -7,6 +7,7 @@ type User struct {
 	Username     string    `json:"username"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
+	IsAdmin      bool      `json:"is_admin"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -121,4 +122,57 @@ type RouteStat struct {
 	DrivesCount     int     `json:"drives_count"`
 	DistanceKm      float64 `json:"distance_km"`
 	TotalFradrag    float64 `json:"total_fradrag"`
+}
+
+// Admin Metrics & Telemetry models (GDPR compliant - zero PII)
+type AdminMetrics struct {
+	TotalUsers           int                    `json:"total_users"`
+	ActiveUsersToday     int                    `json:"active_users_today"`
+	ActiveUsers7d        int                    `json:"active_users_7d"`
+	ActiveUsers30d       int                    `json:"active_users_30d"`
+	TotalDrives          int                    `json:"total_drives"`
+	TotalDistanceKm      float64                `json:"total_distance_km"`
+	TotalFradrag         float64                `json:"total_fradrag"`
+	TotalRoutes          int                    `json:"total_routes"`
+	MonthlyActivity      []AdminMonthlyActivity `json:"monthly_activity"`
+	MonthlySignups       []AdminMonthlySignups  `json:"monthly_signups"`
+	KommuneDistribution []AdminKommuneStat     `json:"kommune_distribution"`
+	UserCohorts          []AnonymizedUserCohort `json:"user_cohorts"`
+	GDPRAudit            GDPRAuditInfo          `json:"gdpr_audit"`
+}
+
+type AdminMonthlyActivity struct {
+	MonthName    string  `json:"month_name"` // "YYYY-MM"
+	ActiveUsers  int     `json:"active_users"`
+	DrivesCount  int     `json:"drives_count"`
+	DistanceKm   float64 `json:"distance_km"`
+	TotalFradrag float64 `json:"total_fradrag"`
+}
+
+type AdminMonthlySignups struct {
+	MonthName string `json:"month_name"` // "YYYY-MM"
+	NewUsers  int    `json:"new_users"`
+}
+
+type AdminKommuneStat struct {
+	KommuneName   string `json:"kommune_name"`
+	IsYderkommune bool   `json:"is_yderkommune"`
+	UserCount     int    `json:"user_count"`
+}
+
+type AnonymizedUserCohort struct {
+	PseudoID          string  `json:"pseudo_id"` // Non-identifying token e.g. "User #1 (a4f2)"
+	SignupMonth       string  `json:"signup_month"` // "YYYY-MM"
+	LastActiveDaysAgo int     `json:"last_active_days_ago"`
+	TotalDrives       int     `json:"total_drives"`
+	TotalDistanceKm   float64 `json:"total_distance_km"`
+	HasDARResidence   bool    `json:"has_dar_residence"`
+	IsYderkommune     bool    `json:"is_yderkommune"`
+}
+
+type GDPRAuditInfo struct {
+	ComplianceStandard string `json:"compliance_standard"`
+	PIIExposed         bool   `json:"pii_exposed"`
+	DataMinimization   bool   `json:"data_minimization"`
+	AuditTimestamp     string `json:"audit_timestamp"`
 }

@@ -90,6 +90,7 @@ func main() {
 	statsHandler := &handlers.StatsHandler{DB: database}
 	sharesHandler := &handlers.SharesHandler{DB: database}
 	ratesHandler := &handlers.RatesHandler{DB: database}
+	adminHandler := &handlers.AdminHandler{DB: database}
 
 	r := chi.NewRouter()
 
@@ -160,6 +161,12 @@ func main() {
 
 			// Tax Rates adjustment
 			protected.Post("/rates", ratesHandler.UpdateRates)
+
+			// Admin Telemetry (GDPR-compliant, restricted to administrators)
+			protected.Group(func(admin chi.Router) {
+				admin.Use(middleware.RequireAdmin)
+				admin.Get("/admin/metrics", adminHandler.GetMetrics)
+			})
 		})
 	})
 

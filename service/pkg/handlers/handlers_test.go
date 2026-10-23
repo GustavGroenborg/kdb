@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -32,6 +33,7 @@ func setupTestRouter(t *testing.T) (*chi.Mux, *db.DB, []byte) {
 	statsHandler := &handlers.StatsHandler{DB: database}
 	sharesHandler := &handlers.SharesHandler{DB: database}
 	ratesHandler := &handlers.RatesHandler{DB: database}
+	adminHandler := &handlers.AdminHandler{DB: database}
 
 	r := chi.NewRouter()
 
@@ -68,6 +70,11 @@ func setupTestRouter(t *testing.T) (*chi.Mux, *db.DB, []byte) {
 			protected.Get("/shares", sharesHandler.List)
 			protected.Post("/shares", sharesHandler.Create)
 			protected.Delete("/shares/{id}", sharesHandler.Delete)
+
+			protected.Group(func(admin chi.Router) {
+				admin.Use(middleware.RequireAdmin)
+				admin.Get("/admin/metrics", adminHandler.GetMetrics)
+			})
 		})
 	})
 
@@ -648,6 +655,87 @@ func TestRecalculateHistoricalDrives(t *testing.T) {
 	}
 	if math.Abs(updatedFradrag-91.26) > 0.001 {
 		t.Errorf("recalculated fradrag got %f, want 91.26", updatedFradrag)
+	}
+}
+
+func TestAdminMetrics_GDPR_Compliance_And_AccessControl(t *testing.T) {
+	router, database, _ := setupTestRouter(t)
+	defer database.Close()
+
+	// 1. Register first user (alice) -> should be automatically granted admin
+	alicePayload := `{"username":"alice_admin","email":"alice_admin@example.com","password":"Password123!"}`
+	req := httptest.NewRequest("POST", "/api/auth/register", bytes.NewBufferString(alicePayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to register alice: %d", rec.Code)
+	}
+	var aliceResp handlers.AuthResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &aliceResp)
+	if !aliceResp.User.IsAdmin {
+		t.Errorf("expected first registered user alice to be admin, got false")
+	}
+
+	// 2. Register second user (bob) -> should NOT be admin
+	bobPayload := `{"username":"bob_regular","email":"bob_regular@example.com","password":"Password123!"}`
+	req = httptest.NewRequest("POST", "/api/auth/register", bytes.NewBufferString(bobPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to register bob: %d", rec.Code)
+	}
+	var bobResp handlers.AuthResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &bobResp)
+	if bobResp.User.IsAdmin {
+		t.Errorf("expected second user bob to NOT be admin, got true")
+	}
+
+	// 3. Bob attempts to access /api/admin/metrics -> should be blocked with 403 Forbidden
+	req = httptest.NewRequest("GET", "/api/admin/metrics", nil)
+	req.Header.Set("Authorization", "Bearer "+bobResp.Token)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for non-admin, got %d", rec.Code)
+	}
+
+	// 4. Alice accesses /api/admin/metrics -> should succeed with 200 OK
+	req = httptest.NewRequest("GET", "/api/admin/metrics", nil)
+	req.Header.Set("Authorization", "Bearer "+aliceResp.Token)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin, got %d", rec.Code)
+	}
+
+	// 5. GDPR Compliance verification:
+	rawJSON := rec.Body.String()
+	// Must not contain any user identifiable text:
+	if strings.Contains(rawJSON, "alice_admin") || strings.Contains(rawJSON, "bob_regular") {
+		t.Errorf("GDPR violation: response contains raw usernames: %s", rawJSON)
+	}
+	if strings.Contains(rawJSON, "alice_admin@example.com") || strings.Contains(rawJSON, "bob_regular@example.com") {
+		t.Errorf("GDPR violation: response contains raw emails: %s", rawJSON)
+	}
+
+	var metrics models.AdminMetrics
+	if err := json.Unmarshal(rec.Body.Bytes(), &metrics); err != nil {
+		t.Fatalf("failed to parse admin metrics: %v", err)
+	}
+
+	if metrics.TotalUsers != 2 {
+		t.Errorf("expected TotalUsers = 2, got %d", metrics.TotalUsers)
+	}
+	if metrics.GDPRAudit.PIIExposed != false {
+		t.Errorf("expected PIIExposed = false, got true")
+	}
+	if metrics.GDPRAudit.DataMinimization != true {
+		t.Errorf("expected DataMinimization = true, got false")
+	}
+	if len(metrics.UserCohorts) != 2 {
+		t.Errorf("expected 2 user cohorts, got %d", len(metrics.UserCohorts))
 	}
 }
 

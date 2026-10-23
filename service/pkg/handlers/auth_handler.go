@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -68,17 +69,31 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var userCount int
+	_ = h.DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
+	isAdmin := userCount == 0 // First registered user is automatically admin
+	if adminList := os.Getenv("KDB_ADMIN_USERS"); adminList != "" {
+		for _, u := range strings.Split(adminList, ",") {
+			trimmed := strings.TrimSpace(u)
+			if strings.EqualFold(trimmed, req.Username) || strings.EqualFold(trimmed, req.Email) {
+				isAdmin = true
+				break
+			}
+		}
+	}
+
 	user := models.User{
 		ID:           uuid.New().String(),
 		Username:     req.Username,
 		Email:        req.Email,
 		PasswordHash: hash,
+		IsAdmin:      isAdmin,
 		CreatedAt:    time.Now().UTC(),
 	}
 
 	_, err = h.DB.Exec(
-		"INSERT INTO users (id, username, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
-		user.ID, user.Username, user.Email, user.PasswordHash, user.CreatedAt,
+		"INSERT INTO users (id, username, email, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+		user.ID, user.Username, user.Email, user.PasswordHash, user.IsAdmin, user.CreatedAt,
 	)
 	if err != nil {
 		http.Error(w, `{"error":"failed to create user"}`, http.StatusInternalServerError)
@@ -108,9 +123,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	queryTerm := strings.TrimSpace(req.UsernameOrEmail)
 	var user models.User
 	err := h.DB.QueryRow(
-		"SELECT id, username, email, password_hash, created_at FROM users WHERE username = ? OR email = ?",
+		"SELECT id, username, email, password_hash, is_admin, created_at FROM users WHERE username = ? OR email = ?",
 		queryTerm, strings.ToLower(queryTerm),
-	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt)
+	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.IsAdmin, &user.CreatedAt)
 
 	if err != nil || !auth.CheckPassword(req.Password, user.PasswordHash) {
 		http.Error(w, `{"error":"invalid username/email or password"}`, http.StatusUnauthorized)
@@ -164,9 +179,9 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 
 	var user models.User
 	err := h.DB.QueryRow(
-		"SELECT id, username, email, created_at FROM users WHERE id = ?",
+		"SELECT id, username, email, is_admin, created_at FROM users WHERE id = ?",
 		authUser.ID,
-	).Scan(&user.ID, &user.Username, &user.Email, &user.CreatedAt)
+	).Scan(&user.ID, &user.Username, &user.Email, &user.IsAdmin, &user.CreatedAt)
 	if err != nil {
 		http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
 		return
@@ -277,9 +292,9 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	// Fetch updated user
 	var user models.User
 	_ = h.DB.QueryRow(
-		"SELECT id, username, email, created_at FROM users WHERE id = ?",
+		"SELECT id, username, email, is_admin, created_at FROM users WHERE id = ?",
 		authUser.ID,
-	).Scan(&user.ID, &user.Username, &user.Email, &user.CreatedAt)
+	).Scan(&user.ID, &user.Username, &user.Email, &user.IsAdmin, &user.CreatedAt)
 
 	// Issue updated JWT token
 	token, err := auth.GenerateToken(h.JWTSecret, user.ID, user.Username, user.Email, 7*24*time.Hour)

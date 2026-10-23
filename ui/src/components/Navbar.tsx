@@ -9,9 +9,10 @@ import {
   Check,
   Menu,
   X,
+  ShieldCheck,
 } from 'lucide-react';
 
-export type ActiveTab = 'register' | 'overview' | 'settings';
+export type ActiveTab = 'register' | 'overview' | 'settings' | 'admin';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -143,6 +144,20 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
                 <SettingsIcon className="w-4 h-4" />
                 <span>Settings</span>
               </button>
+
+              {user?.is_admin && (
+                <button
+                  onClick={() => handleSelectTab('admin')}
+                  className={`flex items-center space-x-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    activeTab === 'admin'
+                      ? 'bg-purple-50 text-purple-700 shadow-sm font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4 text-purple-600" />
+                  <span>Admin</span>
+                </button>
+              )}
             </nav>
 
             {/* Top Menu Right Controls: User Card & Mobile Drawer Burger */}
@@ -456,6 +471,20 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange }) => {
               <SettingsIcon className="w-5 h-5" />
               <span>Settings</span>
             </button>
+
+            {user?.is_admin && (
+              <button
+                onClick={() => handleSelectTab('admin')}
+                className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-medium transition-all ${
+                  activeTab === 'admin'
+                    ? 'bg-purple-50 text-purple-700 font-semibold shadow-sm'
+                    : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                }`}
+              >
+                <ShieldCheck className="w-5 h-5 text-purple-600" />
+                <span>Admin Telemetry</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

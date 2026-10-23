@@ -4,6 +4,7 @@ export interface User {
   id: string;
   username: string;
   email: string;
+  is_admin?: boolean;
   created_at: string;
 }
 
@@ -117,4 +118,57 @@ export interface TaxRate {
   tier2_threshold_km: number;
   tier2_rate: number;
   yderkommune_rate?: number;
+}
+
+// Admin & Telemetry interfaces (GDPR compliant - zero PII)
+export interface AdminMonthlyActivity {
+  month_name: string;
+  active_users: number;
+  drives_count: number;
+  distance_km: number;
+  total_fradrag: number;
+}
+
+export interface AdminMonthlySignups {
+  month_name: string;
+  new_users: number;
+}
+
+export interface AdminKommuneStat {
+  kommune_name: string;
+  is_yderkommune: boolean;
+  user_count: number;
+}
+
+export interface AnonymizedUserCohort {
+  pseudo_id: string;
+  signup_month: string;
+  last_active_days_ago: number;
+  total_drives: number;
+  total_distance_km: number;
+  has_dar_residence: boolean;
+  is_yderkommune: boolean;
+}
+
+export interface GDPRAuditInfo {
+  compliance_standard: string;
+  pii_exposed: boolean;
+  data_minimization: boolean;
+  audit_timestamp: string;
+}
+
+export interface AdminMetrics {
+  total_users: number;
+  active_users_today: number;
+  active_users_7d: number;
+  active_users_30d: number;
+  total_drives: number;
+  total_distance_km: number;
+  total_fradrag: number;
+  total_routes: number;
+  monthly_activity: AdminMonthlyActivity[];
+  monthly_signups: AdminMonthlySignups[];
+  kommune_distribution: AdminKommuneStat[];
+  user_cohorts: AnonymizedUserCohort[];
+  gdpr_audit: GDPRAuditInfo;
 }

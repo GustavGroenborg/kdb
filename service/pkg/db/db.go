@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -55,6 +56,7 @@ func InitDB(dataSourceName string) (*DB, error) {
 		username TEXT UNIQUE NOT NULL,
 		email TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
+		is_admin BOOLEAN NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL
 	);
 
@@ -131,6 +133,41 @@ func InitDB(dataSourceName string) (*DB, error) {
 	}
 
 	// Idempotent column migrations for existing databases
+	var hasIsAdmin bool
+	if rows, err := db.Query("PRAGMA table_info(users);"); err == nil {
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil && name == "is_admin" {
+				hasIsAdmin = true
+				break
+			}
+		}
+		rows.Close()
+	}
+	if !hasIsAdmin {
+		_, _ = db.Exec("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0;")
+	}
+
+	// Bootstrap Admin privileges:
+	// 1) Environment-configured admin users
+	if adminList := os.Getenv("KDB_ADMIN_USERS"); adminList != "" {
+		for _, u := range strings.Split(adminList, ",") {
+			trimmed := strings.TrimSpace(u)
+			if trimmed != "" {
+				_, _ = db.Exec("UPDATE users SET is_admin = 1 WHERE username = ? OR email = ?", trimmed, strings.ToLower(trimmed))
+			}
+		}
+	}
+	// 2) Auto-promote earliest registered user if no admin exists yet
+	var adminCount int
+	_ = db.QueryRow("SELECT COUNT(*) FROM users WHERE is_admin = 1;").Scan(&adminCount)
+	if adminCount == 0 {
+		_, _ = db.Exec("UPDATE users SET is_admin = 1 WHERE id = (SELECT id FROM users ORDER BY created_at ASC LIMIT 1);")
+	}
+
 	var hasIsHidden bool
 	if rows, err := db.Query("PRAGMA table_info(routes);"); err == nil {
 		for rows.Next() {

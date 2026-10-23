@@ -9,6 +9,7 @@ import {
   MeResponse,
   SharePermission,
   LocationType,
+  AdminMetrics,
 } from '../types';
 
 let currentTargetAccountId: string | null = localStorage.getItem('kdb_target_account_id');
@@ -237,4 +238,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  // Admin Telemetry (GDPR compliant)
+  getAdminMetrics: () => request<AdminMetrics>('/api/admin/metrics'),
 };

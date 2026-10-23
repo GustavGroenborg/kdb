@@ -5,6 +5,7 @@ import { AuthPage } from './pages/AuthPage';
 import { RegisterTab } from './pages/RegisterTab';
 import { OverviewTab } from './pages/OverviewTab';
 import { SettingsTab } from './pages/SettingsTab';
+import { AdminTab } from './pages/AdminTab';
 
 const MainApp: React.FC = () => {
   const { user, isLoading } = useAuth();
@@ -32,6 +33,7 @@ const MainApp: React.FC = () => {
         {activeTab === 'register' && <RegisterTab onGoToSettings={() => setActiveTab('settings')} />}
         {activeTab === 'overview' && <OverviewTab />}
         {activeTab === 'settings' && <SettingsTab />}
+        {activeTab === 'admin' && user.is_admin && <AdminTab />}
       </main>
     </div>
   );
