@@ -16,6 +16,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/gcrg/kdb/service/pkg/dar"
 	"github.com/gcrg/kdb/service/pkg/db"
 	"github.com/gcrg/kdb/service/pkg/handlers"
 	"github.com/gcrg/kdb/service/pkg/middleware"
@@ -73,9 +74,17 @@ func main() {
 	defer database.Close()
 	log.Printf("Database initialized successfully.")
 
+	darToken := dar.LoadDARToken()
+	if darToken != "" {
+		log.Printf("DAR API token loaded successfully.")
+	} else {
+		log.Printf("DAR API token not configured (address municipality resolution disabled).")
+	}
+	darClient := dar.NewClient(darToken)
+
 	// Handlers
 	authHandler := &handlers.AuthHandler{DB: database, JWTSecret: jwtSecret}
-	locationsHandler := &handlers.LocationsHandler{DB: database}
+	locationsHandler := &handlers.LocationsHandler{DB: database, DARClient: darClient}
 	routesHandler := &handlers.RoutesHandler{DB: database}
 	drivesHandler := &handlers.DrivesHandler{DB: database}
 	statsHandler := &handlers.StatsHandler{DB: database}

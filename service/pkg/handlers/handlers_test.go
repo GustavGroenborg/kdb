@@ -3,12 +3,14 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/gcrg/kdb/service/pkg/dar"
 	"github.com/gcrg/kdb/service/pkg/db"
 	"github.com/gcrg/kdb/service/pkg/handlers"
 	"github.com/gcrg/kdb/service/pkg/middleware"
@@ -166,7 +168,7 @@ func TestCompleteFlow(t *testing.T) {
 	}
 
 	// 5. Register Drive (50 km round trip)
-	// For 50 km round trip, deduction should be (50 - 24) * 2.23 = 57.98 DKK
+	// For 50 km round trip in 2026, deduction is (50 - 24) * 3.17 = 82.42 DKK
 	drivePayload := `{"route_id":"` + route.ID + `","date":"2026-10-21","notes":"Work day"}`
 	req = httptest.NewRequest("POST", "/api/drives", bytes.NewBufferString(drivePayload))
 	req.Header.Set("Authorization", "Bearer "+aliceToken)
@@ -183,8 +185,8 @@ func TestCompleteFlow(t *testing.T) {
 	if drive.DistanceKm != 50.0 {
 		t.Errorf("Expected distance 50.0 km, got %f", drive.DistanceKm)
 	}
-	if drive.CalculatedFradrag != 57.98 {
-		t.Errorf("Expected calculated fradrag 57.98 DKK, got %f", drive.CalculatedFradrag)
+	if drive.CalculatedFradrag != 82.42 {
+		t.Errorf("Expected calculated fradrag 82.42 DKK, got %f", drive.CalculatedFradrag)
 	}
 
 	// 6. Check Stats endpoint
@@ -202,8 +204,8 @@ func TestCompleteFlow(t *testing.T) {
 	if stats.TotalDrives != 1 {
 		t.Errorf("Expected 1 total drive, got %d", stats.TotalDrives)
 	}
-	if stats.TotalFradrag != 57.98 {
-		t.Errorf("Expected total fradrag 57.98, got %f", stats.TotalFradrag)
+	if stats.TotalFradrag != 82.42 {
+		t.Errorf("Expected total fradrag 82.42, got %f", stats.TotalFradrag)
 	}
 	if len(stats.MonthlyBreakdown) != 1 {
 		t.Fatalf("Expected 1 monthly breakdown, got %d", len(stats.MonthlyBreakdown))
@@ -349,3 +351,135 @@ func TestAccountSettings(t *testing.T) {
 		t.Fatalf("Expected 200 OK for login with new password, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestDARResolutionAndYderkommuneFlow(t *testing.T) {
+	// 1. Mock DAR Server returning Guldborgsund ("0376-0042")
+	darServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := `{
+			"data": {
+				"DAR_Husnummer": {
+					"nodes": [
+						{
+							"adgangsadressebetegnelse": "Strandvejen 1, 4800 Nykøbing F",
+							"vejmidte": "0376-0042",
+							"status": "gældende"
+						}
+					]
+				}
+			}
+		}`
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(response))
+	}))
+	defer darServer.Close()
+
+	database, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to init db: %v", err)
+	}
+	defer database.Close()
+
+	jwtSecret := []byte("test-secret-key-32-bytes-long!")
+	darClient := dar.NewClient("mock-token")
+	darClient.Endpoint = darServer.URL
+
+	authHandler := &handlers.AuthHandler{DB: database, JWTSecret: jwtSecret}
+	locationsHandler := &handlers.LocationsHandler{DB: database, DARClient: darClient}
+	routesHandler := &handlers.RoutesHandler{DB: database}
+	drivesHandler := &handlers.DrivesHandler{DB: database}
+
+	r := chi.NewRouter()
+	r.Route("/api", func(api chi.Router) {
+		api.Post("/auth/register", authHandler.Register)
+		api.Group(func(protected chi.Router) {
+			protected.Use(middleware.RequireAuth(jwtSecret, database))
+			protected.Post("/locations", locationsHandler.Create)
+			protected.Post("/routes", routesHandler.Create)
+			protected.Post("/drives", drivesHandler.Create)
+		})
+	})
+
+	// Register user
+	regPayload := `{"username":"dansk_pendler","email":"pendler@example.com","password":"password123"}`
+	req := httptest.NewRequest("POST", "/api/auth/register", bytes.NewBufferString(regPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	var authResp handlers.AuthResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &authResp)
+	token := authResp.Token
+
+	// Create home location in Guldborgsund
+	homePayload := `{"name":"Hjem","type":"home","address":"Strandvejen 1, 4800 Nykøbing F"}`
+	req = httptest.NewRequest("POST", "/api/locations", bytes.NewBufferString(homePayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("Create home failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var homeLoc models.Location
+	_ = json.Unmarshal(rec.Body.Bytes(), &homeLoc)
+
+	if homeLoc.KommuneCode != "0376" {
+		t.Errorf("got KommuneCode %s, want 0376", homeLoc.KommuneCode)
+	}
+	if homeLoc.KommuneName != "Guldborgsund" {
+		t.Errorf("got KommuneName %s, want Guldborgsund", homeLoc.KommuneName)
+	}
+	if !homeLoc.IsYderkommune {
+		t.Errorf("got IsYderkommune false, want true")
+	}
+
+	// Create workplace location
+	workPayload := `{"name":"Arbejde","type":"workplace","address":"Vordingborgvej 10, 4700 Næstved"}`
+	req = httptest.NewRequest("POST", "/api/locations", bytes.NewBufferString(workPayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	var workLoc models.Location
+	_ = json.Unmarshal(rec.Body.Bytes(), &workLoc)
+
+	// Create 50 km route
+	routePayload := `{"name":"Hjem-Arbejde","origin_location_id":"` + homeLoc.ID + `","destination_location_id":"` + workLoc.ID + `","distance_one_way_km":25,"distance_round_trip_km":50,"is_default":true}`
+	req = httptest.NewRequest("POST", "/api/routes", bytes.NewBufferString(routePayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	var route models.Route
+	_ = json.Unmarshal(rec.Body.Bytes(), &route)
+
+	// Log drive in 2026 for 50 km: yderkommune rate is 3.51 -> (50-24)*3.51 = 91.26 DKK
+	drivePayload := `{"route_id":"` + route.ID + `","date":"2026-05-10"}`
+	req = httptest.NewRequest("POST", "/api/drives", bytes.NewBufferString(drivePayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	var drive50 models.Drive
+	_ = json.Unmarshal(rec.Body.Bytes(), &drive50)
+	if math.Abs(drive50.CalculatedFradrag-91.26) > 0.001 {
+		t.Errorf("got 50km fradrag %f, want 91.26", drive50.CalculatedFradrag)
+	}
+
+	// Log drive in 2026 for 150 km: yderkommune rate is 3.51 regardless of distance -> (150-24)*3.51 = 442.26 DKK
+	drive150Payload := `{"route_id":"` + route.ID + `","date":"2026-05-11","distance_km":150}`
+	req = httptest.NewRequest("POST", "/api/drives", bytes.NewBufferString(drive150Payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	var drive150 models.Drive
+	_ = json.Unmarshal(rec.Body.Bytes(), &drive150)
+	if math.Abs(drive150.CalculatedFradrag-442.26) > 0.001 {
+		t.Errorf("got 150km fradrag %f, want 442.26", drive150.CalculatedFradrag)
+	}
+}
+

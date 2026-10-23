@@ -13,6 +13,7 @@ LimitNOFILE=65535
 Environment="PORT=8080"
 Environment="DATABASE_PATH=/opt/kdb/database/kdb.db"
 Environment="JWT_SECRET=replace-with-a-random-32-byte-secret"
+LoadCredential=dar_token:/etc/kdb/dar_token
 
 [Install]
 WantedBy=multi-user.target

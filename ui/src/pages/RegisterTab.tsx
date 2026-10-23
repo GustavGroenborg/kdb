@@ -28,6 +28,7 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
   const [notes, setNotes] = useState<string>('');
   const [distanceKmOverride, setDistanceKmOverride] = useState<string>('');
   const [rates, setRates] = useState<TaxRate | null>(null);
+  const [isYderkommune, setIsYderkommune] = useState<boolean>(false);
   const [todayDrives, setTodayDrives] = useState<Drive[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -39,15 +40,19 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [fetchedRoutes, fetchedRates, fetchedDrives] = await Promise.all([
+      const [fetchedRoutes, fetchedRates, fetchedDrives, fetchedLocations] = await Promise.all([
         api.getRoutes(),
         api.getRates(),
         api.getDrives({ date, limit: 10 }),
+        api.getLocations(),
       ]);
 
       setRoutes(fetchedRoutes);
       setRates(fetchedRates);
       setTodayDrives(fetchedDrives.filter((d) => d.date === date));
+
+      const primaryHome = fetchedLocations.find((l) => l.type === 'home' && l.is_primary_home) || fetchedLocations.find((l) => l.type === 'home');
+      setIsYderkommune(!!primaryHome?.is_yderkommune);
 
       // Auto-select default route or first visible route
       const visible = fetchedRoutes.filter((r) => !r.is_hidden);
@@ -79,12 +84,15 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
   // Calculate live deduction preview
   const calculateLiveFradrag = (km: number) => {
     if (!rates || km <= rates.threshold_km) return 0;
+    if (isYderkommune && rates.yderkommune_rate) {
+      return (km - rates.threshold_km) * rates.yderkommune_rate;
+    }
     if (km <= rates.tier2_threshold_km) {
       return (km - rates.threshold_km) * rates.base_rate;
     }
     const tier1 = (rates.tier2_threshold_km - rates.threshold_km) * rates.base_rate;
     const tier2 = (km - rates.tier2_threshold_km) * rates.tier2_rate;
-    return Math.round((tier1 + tier2) * 100) / 100;
+    return tier1 + tier2;
   };
 
   const previewFradrag = calculateLiveFradrag(currentDistance);
@@ -358,6 +366,11 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
               <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-600">
                 <Sparkles className="w-4 h-4 text-amber-500" />
                 <span>Calculated Befordringsfradrag:</span>
+                {isYderkommune && (
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                    🌟 Yderkommune sats
+                  </span>
+                )}
               </div>
               <div className="text-2xl font-black text-brand-700 tracking-tight mt-0.5">
                 {previewFradrag.toFixed(2)}{' '}
@@ -367,7 +380,9 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
                 Round-trip distance: <strong>{currentDistance} km</strong>
                 {currentDistance <= (rates?.threshold_km || 24)
                   ? ' (Below 24 km threshold: 0 DKK)'
-                  : ` (${currentDistance - (rates?.threshold_km || 24)} km eligible @ ${rates?.base_rate || 2.23} DKK/km)`}
+                  : isYderkommune
+                  ? ` (${currentDistance - (rates?.threshold_km || 24)} km @ ${rates?.yderkommune_rate || 3.51} DKK/km)`
+                  : ` (${currentDistance - (rates?.threshold_km || 24)} km eligible @ ${rates?.base_rate || 3.17} DKK/km)`}
               </div>
             </div>
 

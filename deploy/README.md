@@ -48,9 +48,10 @@ This guide walks you through deploying the **KDB Befordringsfradrag Service** to
    git clone <your-kdb-repo-url> /opt/kdb
    cd /opt/kdb
    ```
-3. Set your production JWT secret:
+3. Set your production secrets (JWT and optional Datafordeleren DAR API Token):
    ```bash
    export JWT_SECRET=$(openssl rand -hex 32)
+   export DAR_API_TOKEN="your-datafordeler-api-token"
    ```
 4. Start the service:
    ```bash
@@ -75,13 +76,19 @@ If you prefer running without Docker:
    sudo cp bin/kdb-service /opt/kdb/bin/
    sudo chmod +x /opt/kdb/bin/kdb-service
    ```
-2. Copy the systemd unit file:
+2. Provision the DAR API token using systemd credentials (isolated in-memory tmpfs):
+   ```bash
+   sudo mkdir -p /etc/kdb
+   echo "your-datafordeler-api-token" | sudo tee /etc/kdb/dar_token > /dev/null
+   sudo chmod 600 /etc/kdb/dar_token
+   ```
+3. Copy the systemd unit file:
    ```bash
    sudo cp deploy/kdb.service /etc/systemd/system/
    sudo systemctl daemon-reload
    sudo systemctl enable --now kdb.service
    ```
-3. Check status:
+4. Check status:
    ```bash
    sudo systemctl status kdb.service
    ```

@@ -18,10 +18,19 @@ Built with a **Go backend** embedding a **persistent SQLite database** (zero ext
   - **Route Visibility Toggle**: Hide legacy or inactive routes from the registration dropdown without deleting historical drive records or losing deduction statistics.
 - **Round-Trip Commute Calculations ("A drive counts for both back and forth")**:
   - Automatically calculates round-trip kilometers (2x one-way, with optional override).
-  - Built-in Danish SKAT deduction rules:
-    - 0 – 24 km/day: 0 DKK
-    - 25 – 120 km/day: 2.23 DKK/km (standard rate)
-    - \> 120 km/day: 1.12 DKK/km (tier 2 rate)
+  - Built-in Danish SKAT deduction rules across tax years:
+    - **0 – 24 km/day**: 0 DKK
+    - **25 – 120 km/day**: 2.23 DKK/km (2024–2025) / **3.17 DKK/km** (2026)
+    - **> 120 km/day**: 1.12 DKK/km (2024–2025) / **1.59 DKK/km** (2026)
+    - **Yderkommuner & Småøer (Ligningslovens § 9 C, stk. 3)**:
+      - 2024–2025: 2.23 DKK/km for all km > 24
+      - 2026: **3.51 DKK/km** for all km > 24 regardless of distance
+      - Extensible for 2027+ annual rate updates via `tax_rates` database table.
+- **Automatic Municipality & Yderkommune Resolution via DAR**:
+  - Resolves home addresses directly against the Datafordeleren Danish Address Register (DAR) GraphQL API.
+  - Automatically identifies residences in 25 authorized yderkommuner / eligible small island municipalities.
+  - Displays municipality and elevated rate badges in Settings and live deduction preview in Register.
+  - Displays a warning banner if an address cannot be resolved in DAR.
 - **Interactive Overview & Route Breakdown**:
   - Total deductions (DKK), kilometers logged, and monthly breakdown charts.
   - Segmented monthly progress bars showing each route's commute contribution in high-contrast distinct colors.

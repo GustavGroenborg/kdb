@@ -3,34 +3,83 @@ package fradrag
 import (
 	"math"
 	"testing"
+
+	"github.com/gcrg/kdb/service/pkg/models"
 )
 
-func TestCalculate(t *testing.T) {
-	rates := DefaultRates(2026)
+func round2(v float64) float64 {
+	return math.Round(v*100) / 100
+}
+
+func TestCalculate_2024_2025(t *testing.T) {
+	rates := DefaultRates(2025)
 
 	tests := []struct {
-		name       string
-		distanceKm float64
-		expected   float64
+		name          string
+		distanceKm    float64
+		isYderkommune bool
+		expected      float64
 	}{
-		{"Zero km", 0, 0.0},
-		{"Negative km", -10, 0.0},
-		{"Threshold exact 24 km", 24.0, 0.0},
-		{"Below threshold 15 km", 15.0, 0.0},
-		{"Just above threshold 25 km", 25.0, 2.23},
-		{"Commute 50 km", 50.0, 57.98},
-		{"Commute 60 km", 60.0, 80.28},
-		{"Tier 1 limit 120 km", 120.0, 214.08},
-		{"Above tier 1: 140 km", 140.0, 236.48},
-		{"Long commute: 200 km", 200.0, 303.68},
+		{"Below threshold (20 km)", 20.0, false, 0.0},
+		{"Exact threshold (24 km)", 24.0, false, 0.0},
+		{"Standard [25-120 km] (50 km)", 50.0, false, 57.98},
+		{"Standard >120 km (150 km)", 150.0, false, 247.68},
+		{"Yderkommune <=24 km (20 km)", 20.0, true, 0.0},
+		{"Yderkommune (50 km)", 50.0, true, 57.98},
+		{"Yderkommune >120 km (150 km)", 150.0, true, 280.98},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Calculate(tt.distanceKm, rates)
-			if math.Abs(got-tt.expected) > 0.01 {
-				t.Errorf("Calculate(%f) = %f; expected %f", tt.distanceKm, got, tt.expected)
+			got := round2(Calculate(tt.distanceKm, rates, tt.isYderkommune))
+			if got != tt.expected {
+				t.Errorf("Calculate(%v, isYder=%v) = %v; want %v", tt.distanceKm, tt.isYderkommune, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestCalculate_2026(t *testing.T) {
+	rates := DefaultRates(2026)
+
+	tests := []struct {
+		name          string
+		distanceKm    float64
+		isYderkommune bool
+		expected      float64
+	}{
+		{"Below threshold (24 km)", 24.0, false, 0.0},
+		{"Standard (50 km)", 50.0, false, 82.42},
+		{"Standard (150 km)", 150.0, false, 352.02},
+		{"Yderkommune (50 km)", 50.0, true, 91.26},
+		{"Yderkommune (150 km)", 150.0, true, 442.26},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := round2(Calculate(tt.distanceKm, rates, tt.isYderkommune))
+			if got != tt.expected {
+				t.Errorf("Calculate(%v, isYder=%v) = %v; want %v", tt.distanceKm, tt.isYderkommune, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCalculate_2027Extensible(t *testing.T) {
+	rates := models.TaxRate{
+		Year:             2027,
+		ThresholdKm:      24.0,
+		BaseRate:         3.25,
+		Tier2ThresholdKm: 120.0,
+		Tier2Rate:        1.65,
+		YderkommuneRate:  3.60,
+	}
+
+	if got := round2(Calculate(50.0, rates, false)); got != 84.50 {
+		t.Errorf("got %v, want 84.50", got)
+	}
+
+	if got := round2(Calculate(50.0, rates, true)); got != 93.60 {
+		t.Errorf("got %v, want 93.60", got)
 	}
 }

@@ -474,6 +474,50 @@ export const SettingsTab: React.FC = () => {
                 </button>
               )}
             </form>
+
+            {home && home.address && (
+              <div className="mt-4">
+                {home.kommune_name ? (
+                  home.is_yderkommune ? (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200/80 rounded-xl text-xs text-emerald-900 flex items-start space-x-2.5">
+                      <span className="text-sm leading-none">🌟</span>
+                      <div>
+                        <div className="font-semibold text-emerald-950">
+                          Yderkommune ({home.kommune_name})
+                        </div>
+                        <p className="text-[11px] text-emerald-800 mt-0.5">
+                          Fuld befordringssats (3,51 kr./km i 2026 for alle km &gt; 24) jf. Ligningslovens § 9 C, stk. 3.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs text-slate-800 flex items-start space-x-2.5">
+                      <span className="text-sm leading-none">📍</span>
+                      <div>
+                        <div className="font-semibold text-slate-900">
+                          Kommune: {home.kommune_name}
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-0.5">
+                          Standard befordringsfradrag (3,17 kr./km for 25–120 km og 1,59 kr./km over 120 km i 2026).
+                        </p>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start space-x-2.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-semibold text-amber-950">
+                        Adressen kunne ikke findes i DAR
+                      </div>
+                      <p className="text-[11px] text-amber-800 mt-0.5">
+                        Kontrollér adressen (vejnavn, husnummer, postnummer). Standardfradrag anvendes som fallback.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

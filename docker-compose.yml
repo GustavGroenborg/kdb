@@ -11,5 +11,6 @@ services:
       - PORT=8080
       - DATABASE_PATH=/data/database/kdb.db
       - JWT_SECRET=${JWT_SECRET:-change-this-in-production-to-a-secure-random-key}
+      - DAR_API_TOKEN=${DAR_API_TOKEN:-}
     volumes:
       - ./database:/data/database

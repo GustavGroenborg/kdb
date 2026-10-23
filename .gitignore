@@ -41,3 +41,6 @@ ui/node_modules/
 result
 result-*
 
+# Local DAR schema symlink
+DAR.graphql
+

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -9,13 +11,26 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/gcrg/kdb/service/pkg/dar"
 	"github.com/gcrg/kdb/service/pkg/db"
 	"github.com/gcrg/kdb/service/pkg/middleware"
 	"github.com/gcrg/kdb/service/pkg/models"
 )
 
 type LocationsHandler struct {
-	DB *db.DB
+	DB        *db.DB
+	DARClient *dar.Client
+}
+
+func (h *LocationsHandler) resolveKommune(ctx context.Context, address string) (string, string, bool) {
+	if h.DARClient == nil {
+		return "", "", false
+	}
+	res, err := h.DARClient.LookupAddress(ctx, address)
+	if err != nil {
+		return "", "", false
+	}
+	return res.KommuneCode, res.KommuneName, res.IsYderkommune
 }
 
 type CreateLocationRequest struct {
@@ -28,7 +43,7 @@ func (h *LocationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	targetUserID := middleware.GetTargetUserID(r.Context())
 
 	rows, err := h.DB.Query(`
-		SELECT id, user_id, name, type, address, is_primary_home, created_at
+		SELECT id, user_id, name, type, address, is_primary_home, kommune_code, kommune_name, is_yderkommune, created_at
 		FROM locations
 		WHERE user_id = ?
 		ORDER BY CASE WHEN type = 'home' THEN 1 ELSE 2 END, name ASC
@@ -42,10 +57,18 @@ func (h *LocationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	locations := make([]models.Location, 0)
 	for rows.Next() {
 		var loc models.Location
-		if err := rows.Scan(&loc.ID, &loc.UserID, &loc.Name, &loc.Type, &loc.Address, &loc.IsPrimaryHome, &loc.CreatedAt); err != nil {
+		var kCode, kName sql.NullString
+		var isYder sql.NullBool
+		if err := rows.Scan(
+			&loc.ID, &loc.UserID, &loc.Name, &loc.Type, &loc.Address, &loc.IsPrimaryHome,
+			&kCode, &kName, &isYder, &loc.CreatedAt,
+		); err != nil {
 			http.Error(w, `{"error":"failed to parse location data"}`, http.StatusInternalServerError)
 			return
 		}
+		loc.KommuneCode = kCode.String
+		loc.KommuneName = kName.String
+		loc.IsYderkommune = isYder.Bool
 		locations = append(locations, loc)
 	}
 
@@ -76,6 +99,11 @@ func (h *LocationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isHome := req.Type == models.LocationTypeHome
+	var kCode, kName string
+	var isYder bool
+	if isHome {
+		kCode, kName, isYder = h.resolveKommune(r.Context(), req.Address)
+	}
 
 	// If it's a home, enforce single home rule: remove or update existing home
 	if isHome {
@@ -84,8 +112,8 @@ func (h *LocationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		if err == nil && existingHomeID != "" {
 			// Update the existing home instead of creating duplicate home
 			_, err = h.DB.Exec(
-				"UPDATE locations SET name = ?, address = ?, is_primary_home = 1 WHERE id = ?",
-				req.Name, req.Address, existingHomeID,
+				"UPDATE locations SET name = ?, address = ?, is_primary_home = 1, kommune_code = ?, kommune_name = ?, is_yderkommune = ? WHERE id = ?",
+				req.Name, req.Address, kCode, kName, isYder, existingHomeID,
 			)
 			if err != nil {
 				http.Error(w, `{"error":"failed to update existing home"}`, http.StatusInternalServerError)
@@ -93,10 +121,18 @@ func (h *LocationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 			}
 
 			var updatedHome models.Location
+			var kCodeNull, kNameNull sql.NullString
+			var isYderNull sql.NullBool
 			_ = h.DB.QueryRow(
-				"SELECT id, user_id, name, type, address, is_primary_home, created_at FROM locations WHERE id = ?",
+				"SELECT id, user_id, name, type, address, is_primary_home, kommune_code, kommune_name, is_yderkommune, created_at FROM locations WHERE id = ?",
 				existingHomeID,
-			).Scan(&updatedHome.ID, &updatedHome.UserID, &updatedHome.Name, &updatedHome.Type, &updatedHome.Address, &updatedHome.IsPrimaryHome, &updatedHome.CreatedAt)
+			).Scan(
+				&updatedHome.ID, &updatedHome.UserID, &updatedHome.Name, &updatedHome.Type, &updatedHome.Address, &updatedHome.IsPrimaryHome,
+				&kCodeNull, &kNameNull, &isYderNull, &updatedHome.CreatedAt,
+			)
+			updatedHome.KommuneCode = kCodeNull.String
+			updatedHome.KommuneName = kNameNull.String
+			updatedHome.IsYderkommune = isYderNull.Bool
 
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(updatedHome)
@@ -111,12 +147,15 @@ func (h *LocationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Type:          req.Type,
 		Address:       req.Address,
 		IsPrimaryHome: isHome,
+		KommuneCode:   kCode,
+		KommuneName:   kName,
+		IsYderkommune: isYder,
 		CreatedAt:     time.Now().UTC(),
 	}
 
 	_, err := h.DB.Exec(
-		"INSERT INTO locations (id, user_id, name, type, address, is_primary_home, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		loc.ID, loc.UserID, loc.Name, loc.Type, loc.Address, loc.IsPrimaryHome, loc.CreatedAt,
+		"INSERT INTO locations (id, user_id, name, type, address, is_primary_home, kommune_code, kommune_name, is_yderkommune, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		loc.ID, loc.UserID, loc.Name, loc.Type, loc.Address, loc.IsPrimaryHome, loc.KommuneCode, loc.KommuneName, loc.IsYderkommune, loc.CreatedAt,
 	)
 	if err != nil {
 		http.Error(w, `{"error":"failed to create location"}`, http.StatusInternalServerError)
@@ -146,9 +185,22 @@ func (h *LocationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var locType models.LocationType
+	err := h.DB.QueryRow("SELECT type FROM locations WHERE id = ? AND user_id = ?", locID, targetUserID).Scan(&locType)
+	if err != nil {
+		http.Error(w, `{"error":"location not found"}`, http.StatusNotFound)
+		return
+	}
+
+	var kCode, kName string
+	var isYder bool
+	if locType == models.LocationTypeHome {
+		kCode, kName, isYder = h.resolveKommune(r.Context(), req.Address)
+	}
+
 	res, err := h.DB.Exec(
-		"UPDATE locations SET name = ?, address = ? WHERE id = ? AND user_id = ?",
-		req.Name, req.Address, locID, targetUserID,
+		"UPDATE locations SET name = ?, address = ?, kommune_code = ?, kommune_name = ?, is_yderkommune = ? WHERE id = ? AND user_id = ?",
+		req.Name, req.Address, kCode, kName, isYder, locID, targetUserID,
 	)
 	if err != nil {
 		http.Error(w, `{"error":"failed to update location"}`, http.StatusInternalServerError)
@@ -162,14 +214,23 @@ func (h *LocationsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var updatedLoc models.Location
+	var kCodeNull, kNameNull sql.NullString
+	var isYderNull sql.NullBool
 	_ = h.DB.QueryRow(
-		"SELECT id, user_id, name, type, address, is_primary_home, created_at FROM locations WHERE id = ?",
+		"SELECT id, user_id, name, type, address, is_primary_home, kommune_code, kommune_name, is_yderkommune, created_at FROM locations WHERE id = ?",
 		locID,
-	).Scan(&updatedLoc.ID, &updatedLoc.UserID, &updatedLoc.Name, &updatedLoc.Type, &updatedLoc.Address, &updatedLoc.IsPrimaryHome, &updatedLoc.CreatedAt)
+	).Scan(
+		&updatedLoc.ID, &updatedLoc.UserID, &updatedLoc.Name, &updatedLoc.Type, &updatedLoc.Address, &updatedLoc.IsPrimaryHome,
+		&kCodeNull, &kNameNull, &isYderNull, &updatedLoc.CreatedAt,
+	)
+	updatedLoc.KommuneCode = kCodeNull.String
+	updatedLoc.KommuneName = kNameNull.String
+	updatedLoc.IsYderkommune = isYderNull.Bool
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(updatedLoc)
 }
+
 
 func (h *LocationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	targetUserID := middleware.GetTargetUserID(r.Context())

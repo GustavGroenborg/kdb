@@ -28,9 +28,9 @@ func (h *RatesHandler) GetRates(w http.ResponseWriter, r *http.Request) {
 
 	var rates models.TaxRate
 	err := h.DB.QueryRow(
-		"SELECT year, threshold_km, base_rate, tier2_threshold_km, tier2_rate FROM tax_rates WHERE year = ?",
+		"SELECT year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate FROM tax_rates WHERE year = ?",
 		year,
-	).Scan(&rates.Year, &rates.ThresholdKm, &rates.BaseRate, &rates.Tier2ThresholdKm, &rates.Tier2Rate)
+	).Scan(&rates.Year, &rates.ThresholdKm, &rates.BaseRate, &rates.Tier2ThresholdKm, &rates.Tier2Rate, &rates.YderkommuneRate)
 
 	if err != nil {
 		rates = fradrag.DefaultRates(year)
@@ -62,16 +62,20 @@ func (h *RatesHandler) UpdateRates(w http.ResponseWriter, r *http.Request) {
 	if req.Tier2Rate <= 0 {
 		req.Tier2Rate = 1.12
 	}
+	if req.YderkommuneRate <= 0 {
+		req.YderkommuneRate = req.BaseRate
+	}
 
 	_, err := h.DB.Exec(`
-		INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate)
+		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(year) DO UPDATE SET
 			threshold_km = excluded.threshold_km,
 			base_rate = excluded.base_rate,
 			tier2_threshold_km = excluded.tier2_threshold_km,
-			tier2_rate = excluded.tier2_rate
-	`, req.Year, req.ThresholdKm, req.BaseRate, req.Tier2ThresholdKm, req.Tier2Rate)
+			tier2_rate = excluded.tier2_rate,
+			yderkommune_rate = excluded.yderkommune_rate
+	`, req.Year, req.ThresholdKm, req.BaseRate, req.Tier2ThresholdKm, req.Tier2Rate, req.YderkommuneRate)
 
 	if err != nil {
 		http.Error(w, `{"error":"failed to update tax rates"}`, http.StatusInternalServerError)

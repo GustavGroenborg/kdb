@@ -65,6 +65,9 @@ func InitDB(dataSourceName string) (*DB, error) {
 		type TEXT NOT NULL,
 		address TEXT NOT NULL,
 		is_primary_home BOOLEAN NOT NULL DEFAULT 0,
+		kommune_code TEXT DEFAULT '',
+		kommune_name TEXT DEFAULT '',
+		is_yderkommune BOOLEAN NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL
 	);
 
@@ -117,17 +120,21 @@ func InitDB(dataSourceName string) (*DB, error) {
 		threshold_km REAL NOT NULL DEFAULT 24.0,
 		base_rate REAL NOT NULL DEFAULT 2.23,
 		tier2_threshold_km REAL NOT NULL DEFAULT 120.0,
-		tier2_rate REAL NOT NULL DEFAULT 1.12
+		tier2_rate REAL NOT NULL DEFAULT 1.12,
+		yderkommune_rate REAL NOT NULL DEFAULT 2.23
 	);
 
-	INSERT OR IGNORE INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate)
-	VALUES (2024, 24.0, 2.23, 120.0, 1.12);
+	INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate)
+	VALUES (2024, 24.0, 2.23, 120.0, 1.12, 2.23)
+	ON CONFLICT(year) DO UPDATE SET base_rate=excluded.base_rate, tier2_rate=excluded.tier2_rate, yderkommune_rate=excluded.yderkommune_rate;
 
-	INSERT OR IGNORE INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate)
-	VALUES (2025, 24.0, 2.23, 120.0, 1.12);
+	INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate)
+	VALUES (2025, 24.0, 2.23, 120.0, 1.12, 2.23)
+	ON CONFLICT(year) DO UPDATE SET base_rate=excluded.base_rate, tier2_rate=excluded.tier2_rate, yderkommune_rate=excluded.yderkommune_rate;
 
-	INSERT OR IGNORE INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate)
-	VALUES (2026, 24.0, 2.23, 120.0, 1.12);
+	INSERT INTO tax_rates (year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate)
+	VALUES (2026, 24.0, 3.17, 120.0, 1.59, 3.51)
+	ON CONFLICT(year) DO UPDATE SET base_rate=excluded.base_rate, tier2_rate=excluded.tier2_rate, yderkommune_rate=excluded.yderkommune_rate;
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -152,6 +159,50 @@ func InitDB(dataSourceName string) (*DB, error) {
 	if !hasIsHidden {
 		_, _ = db.Exec("ALTER TABLE routes ADD COLUMN is_hidden BOOLEAN NOT NULL DEFAULT 0;")
 	}
+
+	// Idempotent column migrations for locations table
+	locationCols := make(map[string]bool)
+	if rows, err := db.Query("PRAGMA table_info(locations);"); err == nil {
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+				locationCols[name] = true
+			}
+		}
+		rows.Close()
+	}
+	if !locationCols["kommune_code"] {
+		_, _ = db.Exec("ALTER TABLE locations ADD COLUMN kommune_code TEXT DEFAULT '';")
+	}
+	if !locationCols["kommune_name"] {
+		_, _ = db.Exec("ALTER TABLE locations ADD COLUMN kommune_name TEXT DEFAULT '';")
+	}
+	if !locationCols["is_yderkommune"] {
+		_, _ = db.Exec("ALTER TABLE locations ADD COLUMN is_yderkommune BOOLEAN NOT NULL DEFAULT 0;")
+	}
+
+	// Idempotent column migrations for tax_rates table
+	var hasYderkommuneRate bool
+	if rows, err := db.Query("PRAGMA table_info(tax_rates);"); err == nil {
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil && name == "yderkommune_rate" {
+				hasYderkommuneRate = true
+				break
+			}
+		}
+		rows.Close()
+	}
+	if !hasYderkommuneRate {
+		_, _ = db.Exec("ALTER TABLE tax_rates ADD COLUMN yderkommune_rate REAL NOT NULL DEFAULT 2.23;")
+	}
+
 
 	return &DB{DB: db}, nil
 }

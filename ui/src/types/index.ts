@@ -14,6 +14,9 @@ export interface Location {
   type: LocationType;
   address: string;
   is_primary_home: boolean;
+  kommune_code?: string;
+  kommune_name?: string;
+  is_yderkommune?: boolean;
   created_at: string;
 }
 
@@ -112,4 +115,5 @@ export interface TaxRate {
   base_rate: number;
   tier2_threshold_km: number;
   tier2_rate: number;
+  yderkommune_rate?: number;
 }

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -161,18 +160,25 @@ func (h *DrivesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Check whether user's primary home is in an yderkommune
+	var isYderkommune bool
+	_ = h.DB.QueryRow(
+		"SELECT is_yderkommune FROM locations WHERE user_id = ? AND type = 'home' AND is_primary_home = 1 LIMIT 1",
+		targetUserID,
+	).Scan(&isYderkommune)
+
 	// Fetch tax rates for this year
 	var rates models.TaxRate
 	err = h.DB.QueryRow(
-		"SELECT year, threshold_km, base_rate, tier2_threshold_km, tier2_rate FROM tax_rates WHERE year = ?",
+		"SELECT year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate FROM tax_rates WHERE year = ?",
 		driveYear,
-	).Scan(&rates.Year, &rates.ThresholdKm, &rates.BaseRate, &rates.Tier2ThresholdKm, &rates.Tier2Rate)
+	).Scan(&rates.Year, &rates.ThresholdKm, &rates.BaseRate, &rates.Tier2ThresholdKm, &rates.Tier2Rate, &rates.YderkommuneRate)
 
-	if err == sql.ErrNoRows {
+	if err != nil {
 		rates = fradrag.DefaultRates(driveYear)
 	}
 
-	calculatedFradrag := fradrag.Calculate(distanceKm, rates)
+	calculatedFradrag := fradrag.Calculate(distanceKm, rates, isYderkommune)
 
 	drive := models.Drive{
 		ID:                 uuid.New().String(),

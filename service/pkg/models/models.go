@@ -25,6 +25,9 @@ type Location struct {
 	Type          LocationType `json:"type"`
 	Address       string       `json:"address"`
 	IsPrimaryHome bool         `json:"is_primary_home"`
+	KommuneCode   string       `json:"kommune_code,omitempty"`
+	KommuneName   string       `json:"kommune_name,omitempty"`
+	IsYderkommune bool         `json:"is_yderkommune"`
 	CreatedAt     time.Time    `json:"created_at"`
 }
 
@@ -77,9 +80,10 @@ type AccountShare struct {
 type TaxRate struct {
 	Year             int     `json:"year"`
 	ThresholdKm      float64 `json:"threshold_km"`       // default: 24 km
-	BaseRate         float64 `json:"base_rate"`          // default: 2.23 DKK/km (25-120 km)
+	BaseRate         float64 `json:"base_rate"`          // e.g. 2.23 (2024-2025) or 3.17 (2026)
 	Tier2ThresholdKm float64 `json:"tier2_threshold_km"` // default: 120 km
-	Tier2Rate        float64 `json:"tier2_rate"`         // default: 1.12 DKK/km (> 120 km)
+	Tier2Rate        float64 `json:"tier2_rate"`         // e.g. 1.12 (2024-2025) or 1.59 (2026)
+	YderkommuneRate  float64 `json:"yderkommune_rate"`   // e.g. 2.23 (2024-2025) or 3.51 (2026)
 }
 
 // Stats & Aggregation models
