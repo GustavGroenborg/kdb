@@ -47,7 +47,12 @@ func LoadDARToken() string {
 	if token := strings.TrimSpace(os.Getenv("DAR_API_TOKEN")); token != "" {
 		return token
 	}
-	if data, err := os.ReadFile(".env"); err == nil {
+
+	parseEnvFile := func(path string) string {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return ""
+		}
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "DAR_API_TOKEN=") {
@@ -59,7 +64,39 @@ func LoadDARToken() string {
 				}
 			}
 		}
+		return ""
 	}
+
+	// Search current directory and walk up parent directories
+	if cwd, err := os.Getwd(); err == nil {
+		curr := cwd
+		for i := 0; i < 5; i++ {
+			if tok := parseEnvFile(filepath.Join(curr, ".env")); tok != "" {
+				return tok
+			}
+			parent := filepath.Dir(curr)
+			if parent == curr {
+				break
+			}
+			curr = parent
+		}
+	}
+
+	// Search executable directory and walk up
+	if exePath, err := os.Executable(); err == nil {
+		curr := filepath.Dir(exePath)
+		for i := 0; i < 5; i++ {
+			if tok := parseEnvFile(filepath.Join(curr, ".env")); tok != "" {
+				return tok
+			}
+			parent := filepath.Dir(curr)
+			if parent == curr {
+				break
+			}
+			curr = parent
+		}
+	}
+
 	return ""
 }
 
@@ -175,7 +212,9 @@ func (c *Client) executeQuery(ctx context.Context, search string, first int) ([]
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	if !strings.Contains(endpoint, "apiKey=") {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

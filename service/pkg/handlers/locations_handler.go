@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -24,12 +25,15 @@ type LocationsHandler struct {
 
 func (h *LocationsHandler) resolveKommune(ctx context.Context, address string) (string, string, bool) {
 	if h.DARClient == nil {
+		log.Printf("DARClient is nil; skipping municipality resolution for %q", address)
 		return "", "", false
 	}
 	res, err := h.DARClient.LookupAddress(ctx, address)
 	if err != nil {
+		log.Printf("DAR address lookup error for %q: %v", address, err)
 		return "", "", false
 	}
+	log.Printf("DAR resolved %q -> Kommune %s (%s), isYder: %v", address, res.KommuneCode, res.KommuneName, res.IsYderkommune)
 	return res.KommuneCode, res.KommuneName, res.IsYderkommune
 }
 

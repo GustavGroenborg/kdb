@@ -53,6 +53,7 @@ func TestLookupAddress_Success(t *testing.T) {
 	}
 }
 
+
 func TestAutocomplete_Success(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("tekst") != "Højgårdsvej 9, 9670" {
@@ -211,6 +212,52 @@ func TestLookupAddress_SupplerendeBynavn(t *testing.T) {
 		t.Errorf("got IsYderkommune false, want true")
 	}
 }
+
+func TestLookupAddress_DatafordelerenEndpoint_NoAuthHeader(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// When querying Datafordeleren, apiKey is in query params and Authorization header MUST NOT be present
+		// to avoid DAF-AUTH-0002 multiple authentication methods error.
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("unexpected Authorization header present: %s", r.Header.Get("Authorization"))
+		}
+		if r.URL.Query().Get("apiKey") != "my-df-token" {
+			t.Errorf("expected apiKey my-df-token, got %s", r.URL.Query().Get("apiKey"))
+		}
+
+		response := `{
+			"data": {
+				"DAR_Husnummer": {
+					"nodes": [
+						{
+							"adgangsadressebetegnelse": "Højgårdsvej 9, Mjallerup, 9670 Løgstør",
+							"vejmidte": "0820-0587",
+							"status": "3"
+						}
+					]
+				}
+			}
+		}`
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(response))
+	}))
+	defer ts.Close()
+
+	client := NewClient("my-df-token")
+	client.Endpoint = ts.URL + "/graphql.datafordeler.dk/DAR/v3"
+
+	res, err := client.LookupAddress(context.Background(), "Højgårdsvej 9, Mjallerup, 9670 Løgstør")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.KommuneCode != "0820" {
+		t.Errorf("got KommuneCode %s, want 0820", res.KommuneCode)
+	}
+	if !res.IsYderkommune {
+		t.Errorf("expected isYderkommune=true")
+	}
+}
+
 
 
 

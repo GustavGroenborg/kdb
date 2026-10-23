@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Location, Route, AccountShare, LocationType, SharePermission } from '../types';
+import { Location, Route, AccountShare, LocationType, SharePermission, TaxRate } from '../types';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { AddressAutocomplete } from '../components/AddressAutocomplete';
@@ -34,6 +34,7 @@ export const SettingsTab: React.FC = () => {
     my_shares: [],
     shared_with_me: [],
   });
+  const [rates, setRates] = useState<TaxRate | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -85,15 +86,17 @@ export const SettingsTab: React.FC = () => {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [fetchedLocs, fetchedRoutes, fetchedShares] = await Promise.all([
+      const [fetchedLocs, fetchedRoutes, fetchedShares, fetchedRates] = await Promise.all([
         api.getLocations(),
         api.getRoutes(),
         api.getShares(),
+        api.getRates(),
       ]);
 
       setLocations(fetchedLocs);
       setRoutes(fetchedRoutes);
       setShares(fetchedShares);
+      setRates(fetchedRates);
 
       const home = fetchedLocs.find((l) => l.type === 'home');
       if (home) {
@@ -117,21 +120,28 @@ export const SettingsTab: React.FC = () => {
   };
 
   // 1. Save Home
-  const handleSaveHome = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveHome = async (e?: React.FormEvent, overrideAddr?: string) => {
+    if (e) e.preventDefault();
     if (!canWrite) return;
+    const targetAddress = (overrideAddr || homeAddress).trim();
+    if (!targetAddress) return;
     try {
       await api.createLocation({
         name: homeName.trim() || 'My Residence',
         type: 'home',
-        address: homeAddress.trim(),
+        address: targetAddress,
       });
-      showSuccess('Home address updated successfully!');
+      showSuccess('Home address updated and verified with DAR!');
       await fetchData();
       await refreshMe();
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to update home');
     }
+  };
+
+  const handleHomeAddressSelect = (selectedAddress: string) => {
+    setHomeAddress(selectedAddress);
+    handleSaveHome(undefined, selectedAddress);
   };
 
   // 2. Add Workplace or University
@@ -423,100 +433,214 @@ export const SettingsTab: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* SECTION 1: HOME LOCATION */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center space-x-2.5 mb-4 text-slate-900">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 text-brand-600 flex items-center justify-center">
-                <Home className="w-4 h-4" />
+        {/* COLUMN 1: HOME LOCATION & BEFORDRINGSFRADRAG RULES */}
+        <div className="space-y-8">
+          {/* SECTION 1: HOME LOCATION */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+            <div>
+              <div className="flex items-center space-x-2.5 mb-4 text-slate-900">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-brand-600 flex items-center justify-center">
+                  <Home className="w-4 h-4" />
+                </div>
+                <h2 className="text-base font-bold">Home Location (Single Home)</h2>
               </div>
-              <h2 className="text-base font-bold">Home Location (Single Home)</h2>
+              <p className="text-xs text-slate-500 mb-4">
+                Your registered Danish tax residence. All routes originate from this home address.
+              </p>
+
+              <form onSubmit={handleSaveHome} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Home Label
+                  </label>
+                  <input
+                    type="text"
+                    value={homeName}
+                    onChange={(e) => setHomeName(e.target.value)}
+                    placeholder="e.g. My Flat"
+                    disabled={!canWrite}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Full Street Address
+                  </label>
+                  <AddressAutocomplete
+                    value={homeAddress}
+                    onChange={setHomeAddress}
+                    onSelect={handleHomeAddressSelect}
+                    required
+                    disabled={!canWrite}
+                    placeholder="f.eks. Nørrebrogade 10, 2200 København N"
+                  />
+                </div>
+
+                {canWrite && (
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all"
+                  >
+                    {home ? 'Update Home Address' : 'Save Home Address'}
+                  </button>
+                )}
+              </form>
+
+              {homeAddress.trim() !== (home?.address || '').trim() && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200/80 rounded-xl text-xs text-blue-900 flex items-center justify-between">
+                  <span className="text-[11px] text-blue-800">
+                    Ugemt adresse. Klik 'Gem bopælsadresse' for at registrere i DAR.
+                  </span>
+                </div>
+              )}
+
+              {home && home.address && homeAddress.trim() === (home.address || '').trim() && (
+                <div className="mt-4">
+                  {home.kommune_name ? (
+                    home.is_yderkommune ? (
+                      <div className="p-3 bg-emerald-50 border border-emerald-200/80 rounded-xl text-xs text-emerald-900 flex items-start space-x-2.5">
+                        <span className="text-sm leading-none">🌟</span>
+                        <div>
+                          <div className="font-semibold text-emerald-950">
+                            Yderkommune ({home.kommune_name})
+                          </div>
+                          <p className="text-[11px] text-emerald-800 mt-0.5">
+                            Fuld befordringssats (3,51 kr./km i {rates?.year ?? 2026} for alle km &gt; 24) jf. Ligningslovens § 9 C, stk. 3.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs text-slate-800 flex items-start space-x-2.5">
+                        <span className="text-sm leading-none">📍</span>
+                        <div>
+                          <div className="font-semibold text-slate-900">
+                            Kommune: {home.kommune_name}
+                          </div>
+                          <p className="text-[11px] text-slate-600 mt-0.5">
+                            Standard befordringsfradrag (3,17 kr./km for 25–120 km og 1,59 kr./km over 120 km i {rates?.year ?? 2026}).
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  ) : (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start space-x-2.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-semibold text-amber-950">
+                          Adressen kunne ikke findes i DAR
+                        </div>
+                        <p className="text-[11px] text-amber-800 mt-0.5">
+                          Kontrollér adressen (vejnavn, husnummer, postnummer). Standardfradrag anvendes som fallback.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+          </div>
+
+          {/* DANISH BEFORDRINGSFRADRAG RULES (SKAT) */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2.5 text-slate-900">
+                <div
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                    home?.is_yderkommune ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-50 text-amber-600'
+                  }`}
+                >
+                  <Shield className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold">Danish Befordringsfradrag Rules (SKAT)</h2>
+                </div>
+              </div>
+              {home?.kommune_name && (
+                <span
+                  className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full ${
+                    home.is_yderkommune ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  {home.is_yderkommune ? `🌟 Yderkommune (${home.kommune_name})` : `📍 ${home.kommune_name}`}
+                </span>
+              )}
+            </div>
+
             <p className="text-xs text-slate-500 mb-4">
-              Your registered Danish tax residence. All routes originate from this home address.
+              {home?.kommune_name ? (
+                home.is_yderkommune ? (
+                  <>
+                    Din bopæl er registreret i <strong className="text-slate-800">{home.kommune_name} Kommune</strong>{' '}
+                    (Yderkommune). Du modtager forhøjet fradrag på{' '}
+                    <strong>{rates?.yderkommune_rate ? rates.yderkommune_rate.toFixed(2) : '3.51'} kr./km</strong> for alle km &gt; 24
+                    uden nedsættelse jf. Ligningslovens § 9 C, stk. 3.
+                  </>
+                ) : (
+                  <>
+                    Din bopæl er registreret i <strong className="text-slate-800">{home.kommune_name} Kommune</strong>.
+                    Gældende standardsatser for {rates?.year ?? 2026} anvendes automatisk på dine ruter.
+                  </>
+                )
+              ) : (
+                <>
+                  Gældende satser for befordringsfradrag i {rates?.year ?? 2026}. Registrér din bopæl ovenfor for at
+                  bekræfte din kommune.
+                </>
+              )}
             </p>
 
-            <form onSubmit={handleSaveHome} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Home Label
-                </label>
-                <input
-                  type="text"
-                  value={homeName}
-                  onChange={(e) => setHomeName(e.target.value)}
-                  placeholder="e.g. My Flat"
-                  disabled={!canWrite}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-500"
-                />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <div className="font-semibold text-slate-700">0 – {rates?.threshold_km ?? 24} km/dag</div>
+                <div className="text-lg font-bold text-slate-900 mt-1">0,00 kr.</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Bundgrænse (Intet fradrag)</div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Full Street Address
-                </label>
-                <AddressAutocomplete
-                  value={homeAddress}
-                  onChange={setHomeAddress}
-                  required
-                  disabled={!canWrite}
-                  placeholder="f.eks. Nørrebrogade 10, 2200 København N"
-                />
-              </div>
-
-              {canWrite && (
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all"
+              <div
+                className={`p-3 rounded-xl border ${
+                  home?.is_yderkommune ? 'bg-emerald-50/60 border-emerald-200' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="font-semibold text-slate-700">
+                  {rates?.threshold_km ? rates.threshold_km + 1 : 25} – {rates?.tier2_threshold_km ?? 120} km/dag
+                </div>
+                <div
+                  className={`text-lg font-bold mt-1 ${
+                    home?.is_yderkommune ? 'text-emerald-700' : 'text-brand-700'
+                  }`}
                 >
-                  {home ? 'Update Home Address' : 'Save Home Address'}
-                </button>
-              )}
-            </form>
-
-            {home && home.address && (
-              <div className="mt-4">
-                {home.kommune_name ? (
-                  home.is_yderkommune ? (
-                    <div className="p-3 bg-emerald-50 border border-emerald-200/80 rounded-xl text-xs text-emerald-900 flex items-start space-x-2.5">
-                      <span className="text-sm leading-none">🌟</span>
-                      <div>
-                        <div className="font-semibold text-emerald-950">
-                          Yderkommune ({home.kommune_name})
-                        </div>
-                        <p className="text-[11px] text-emerald-800 mt-0.5">
-                          Fuld befordringssats (3,51 kr./km i 2026 for alle km &gt; 24) jf. Ligningslovens § 9 C, stk. 3.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs text-slate-800 flex items-start space-x-2.5">
-                      <span className="text-sm leading-none">📍</span>
-                      <div>
-                        <div className="font-semibold text-slate-900">
-                          Kommune: {home.kommune_name}
-                        </div>
-                        <p className="text-[11px] text-slate-600 mt-0.5">
-                          Standard befordringsfradrag (3,17 kr./km for 25–120 km og 1,59 kr./km over 120 km i 2026).
-                        </p>
-                      </div>
-                    </div>
-                  )
-                ) : (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start space-x-2.5">
-                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-semibold text-amber-950">
-                        Adressen kunne ikke findes i DAR
-                      </div>
-                      <p className="text-[11px] text-amber-800 mt-0.5">
-                        Kontrollér adressen (vejnavn, husnummer, postnummer). Standardfradrag anvendes som fallback.
-                      </p>
-                    </div>
-                  </div>
-                )}
+                  {home?.is_yderkommune
+                    ? `${rates?.yderkommune_rate ? rates.yderkommune_rate.toFixed(2) : '3.51'} kr./km`
+                    : `${rates?.base_rate ? rates.base_rate.toFixed(2) : '3.17'} kr./km`}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">
+                  {home?.is_yderkommune ? 'Fuld yderkommunesats' : `Standardsats (${rates?.year ?? 2026})`}
+                </div>
               </div>
-            )}
+
+              <div
+                className={`p-3 rounded-xl border ${
+                  home?.is_yderkommune ? 'bg-emerald-50/60 border-emerald-200' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="font-semibold text-slate-700">
+                  Over {rates?.tier2_threshold_km ?? 120} km/dag
+                </div>
+                <div
+                  className={`text-lg font-bold mt-1 ${
+                    home?.is_yderkommune ? 'text-emerald-700' : 'text-indigo-700'
+                  }`}
+                >
+                  {home?.is_yderkommune
+                    ? `${rates?.yderkommune_rate ? rates.yderkommune_rate.toFixed(2) : '3.51'} kr./km`
+                    : `${rates?.tier2_rate ? rates.tier2_rate.toFixed(2) : '1.59'} kr./km`}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">
+                  {home?.is_yderkommune ? 'Ingen nedsættelse (LL § 9 C)' : `Nedsat sats (${rates?.year ?? 2026})`}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1150,39 +1274,6 @@ export const SettingsTab: React.FC = () => {
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-
-        {/* SECTION 5: DANISH SKAT TAX DEDUCTION RATES */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm lg:col-span-2">
-          <div className="flex items-center space-x-2.5 mb-2 text-slate-900">
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-              <Shield className="w-4 h-4" />
-            </div>
-            <h2 className="text-base font-bold">Danish Befordringsfradrag Rules (SKAT)</h2>
-          </div>
-          <p className="text-xs text-slate-500 mb-4">
-            Official statutory rates applied automatically to your registered commutes:
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-              <div className="font-semibold text-slate-700">0 – 24 km/day</div>
-              <div className="text-xl font-bold text-slate-900 mt-1">0.00 DKK</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Threshold (Bundgrænse)</div>
-            </div>
-
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-              <div className="font-semibold text-slate-700">25 – 120 km/day</div>
-              <div className="text-xl font-bold text-brand-700 mt-1">2.23 DKK/km</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Standard Rate</div>
-            </div>
-
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-              <div className="font-semibold text-slate-700">Above 120 km/day</div>
-              <div className="text-xl font-bold text-indigo-700 mt-1">1.12 DKK/km</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">High Distance Rate</div>
             </div>
           </div>
         </div>
