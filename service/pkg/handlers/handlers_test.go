@@ -50,6 +50,7 @@ func setupTestRouter(t *testing.T) (*chi.Mux, *db.DB, []byte) {
 			protected.Post("/locations", locationsHandler.Create)
 			protected.Put("/locations/{id}", locationsHandler.Update)
 			protected.Delete("/locations/{id}", locationsHandler.Delete)
+			protected.Get("/addresses/autocomplete", locationsHandler.AutocompleteAddress)
 
 			protected.Get("/routes", routesHandler.List)
 			protected.Post("/routes", routesHandler.Create)
@@ -480,6 +481,89 @@ func TestDARResolutionAndYderkommuneFlow(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &drive150)
 	if math.Abs(drive150.CalculatedFradrag-442.26) > 0.001 {
 		t.Errorf("got 150km fradrag %f, want 442.26", drive150.CalculatedFradrag)
+	}
+}
+
+func TestAddressAutocompleteEndpoint(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"status": "ok",
+			"fund": [
+				{
+					"type": "adresse",
+					"id": "addr-1",
+					"titel": "Højgårdsvej 9, Mjallerup, 9670 Løgstør"
+				}
+			]
+		}`))
+	}))
+	defer ts.Close()
+
+	database, err := db.InitDB(":memory:")
+	if err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	defer database.Close()
+
+	jwtSecret := []byte("test-secret-key-32-bytes-long!")
+	darClient := dar.NewClient("test-token")
+	darClient.AdressevaelgerEndpoint = ts.URL
+
+	authHandler := &handlers.AuthHandler{DB: database, JWTSecret: jwtSecret}
+	locationsHandler := &handlers.LocationsHandler{DB: database, DARClient: darClient}
+
+	r := chi.NewRouter()
+	r.Route("/api", func(api chi.Router) {
+		api.Post("/auth/register", authHandler.Register)
+		api.Group(func(protected chi.Router) {
+			protected.Use(middleware.RequireAuth(jwtSecret, database))
+			protected.Get("/addresses/autocomplete", locationsHandler.AutocompleteAddress)
+		})
+	})
+
+	regPayload := `{"username":"autouser","email":"auto@example.com","password":"Password123!"}`
+	req := httptest.NewRequest("POST", "/api/auth/register", bytes.NewBufferString(regPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("Register failed: status %d, body: %s", rec.Code, rec.Body.String())
+	}
+	var authResp handlers.AuthResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &authResp)
+	token := authResp.Token
+
+	// Query with short query (<2 chars) returns empty array
+	req = httptest.NewRequest("GET", "/api/addresses/autocomplete?q=H", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "[]" {
+		t.Fatalf("expected [], got %s", rec.Body.String())
+	}
+
+	// Query with valid query returns suggestions
+	req = httptest.NewRequest("GET", "/api/addresses/autocomplete?q=Højgårdsvej", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var suggestions []dar.AutocompleteSuggestion
+	if err := json.Unmarshal(rec.Body.Bytes(), &suggestions); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(suggestions) != 1 {
+		t.Fatalf("expected 1 suggestion, got %d", len(suggestions))
+	}
+	if suggestions[0].Text != "Højgårdsvej 9, Mjallerup, 9670 Løgstør" {
+		t.Errorf("got %s, want Højgårdsvej 9, Mjallerup, 9670 Løgstør", suggestions[0].Text)
 	}
 }
 

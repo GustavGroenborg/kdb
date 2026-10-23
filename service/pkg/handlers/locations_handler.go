@@ -263,3 +263,23 @@ func (h *LocationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"message":"location deleted successfully"}`))
 }
+
+// AutocompleteAddress handles type-ahead search queries for Danish addresses using Adressevælgeren.
+func (h *LocationsHandler) AutocompleteAddress(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if len(q) < 2 || h.DARClient == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]"))
+		return
+	}
+
+	suggestions, err := h.DARClient.Autocomplete(r.Context(), q)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(suggestions)
+}

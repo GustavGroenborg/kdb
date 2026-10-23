@@ -53,6 +53,72 @@ func TestLookupAddress_Success(t *testing.T) {
 	}
 }
 
+func TestAutocomplete_Success(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("tekst") != "Højgårdsvej 9, 9670" {
+			t.Errorf("unexpected query text: %s", r.URL.Query().Get("tekst"))
+		}
+		if r.URL.Query().Get("token") != "custom-tok" {
+			t.Errorf("unexpected token: %s", r.URL.Query().Get("token"))
+		}
+
+		response := `{
+			"status": "ok",
+			"fund": [
+				{
+					"type": "adresse",
+					"id": "addr-1",
+					"titel": "Højgårdsvej 9, Mjallerup, 9670 Løgstør",
+					"husnummerId": "hus-1"
+				}
+			]
+		}`
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(response))
+	}))
+	defer ts.Close()
+
+	client := NewClient("custom-tok")
+	client.AdressevaelgerEndpoint = ts.URL
+
+	suggestions, err := client.Autocomplete(context.Background(), "Højgårdsvej 9, 9670")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(suggestions) != 1 {
+		t.Fatalf("expected 1 suggestion, got %d", len(suggestions))
+	}
+	if suggestions[0].Text != "Højgårdsvej 9, Mjallerup, 9670 Løgstør" {
+		t.Errorf("got text %q, want 'Højgårdsvej 9, Mjallerup, 9670 Løgstør'", suggestions[0].Text)
+	}
+}
+
+func TestAutocomplete_FallbackToken(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("token") != DefaultFallbackToken {
+			t.Errorf("expected fallback token %s, got %s", DefaultFallbackToken, r.URL.Query().Get("token"))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status": "ok", "fund": []}`))
+	}))
+	defer ts.Close()
+
+	client := NewClient("")
+	client.AdressevaelgerEndpoint = ts.URL
+
+	suggestions, err := client.Autocomplete(context.Background(), "Amagertorv")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(suggestions) != 0 {
+		t.Fatalf("expected 0 suggestions, got %d", len(suggestions))
+	}
+}
+
+
 func TestLookupAddress_NotFound(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response := `{
@@ -145,4 +211,6 @@ func TestLookupAddress_SupplerendeBynavn(t *testing.T) {
 		t.Errorf("got IsYderkommune false, want true")
 	}
 }
+
+
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,7 +23,11 @@ var (
 	ErrAddressNotFound = errors.New("address not found in DAR")
 )
 
-const DefaultEndpoint = "https://graphql.datafordeler.dk/DAR/v3"
+const (
+	DefaultEndpoint               = "https://graphql.datafordeler.dk/DAR/v3"
+	DefaultAdressevaelgerEndpoint = "https://adressevaelger.dk/adresser/soeg"
+	DefaultFallbackToken          = "adressevaelger123"
+)
 
 var postalCodeRegex = regexp.MustCompile(`\b([1-9][0-9]{3})\b`)
 
@@ -59,19 +64,35 @@ func LoadDARToken() string {
 }
 
 type Client struct {
-	Endpoint   string
-	Token      string
-	HTTPClient *http.Client
+	Endpoint               string
+	AdressevaelgerEndpoint string
+	Token                  string
+	HTTPClient             *http.Client
 }
 
 func NewClient(token string) *Client {
 	return &Client{
-		Endpoint: DefaultEndpoint,
-		Token:    token,
+		Endpoint:               DefaultEndpoint,
+		AdressevaelgerEndpoint: DefaultAdressevaelgerEndpoint,
+		Token:                  token,
 		HTTPClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+type AutocompleteSuggestion struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+type adressevaelgerResponse struct {
+	Status      string `json:"status"`
+	Beskrivelse string `json:"beskrivelse,omitempty"`
+	Fund        []struct {
+		ID    string `json:"id"`
+		Titel string `json:"titel"`
+	} `json:"fund"`
 }
 
 type AddressResult struct {
@@ -265,4 +286,57 @@ func (c *Client) LookupAddress(ctx context.Context, address string) (*AddressRes
 		KommuneName:     name,
 		IsYderkommune:   isYder,
 	}, nil
+}
+
+// Autocomplete queries Klimadatastyrelsen's Adressevælgeren to provide fast, typo-tolerant type-ahead address suggestions.
+func (c *Client) Autocomplete(ctx context.Context, query string) ([]AutocompleteSuggestion, error) {
+	trimmed := strings.TrimSpace(query)
+	if len(trimmed) < 2 {
+		return []AutocompleteSuggestion{}, nil
+	}
+
+	token := strings.TrimSpace(c.Token)
+	if token == "" {
+		token = DefaultFallbackToken
+	}
+
+	endpoint := c.AdressevaelgerEndpoint
+	if endpoint == "" {
+		endpoint = DefaultAdressevaelgerEndpoint
+	}
+
+	reqURL := fmt.Sprintf("%s?tekst=%s&token=%s", endpoint, url.QueryEscape(trimmed), url.QueryEscape(token))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create autocomplete request: %w", err)
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("autocomplete request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("autocomplete HTTP error %d: %s", resp.StatusCode, string(body))
+	}
+
+	var res adressevaelgerResponse
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return nil, fmt.Errorf("failed to decode autocomplete response: %w", err)
+	}
+
+	suggestions := make([]AutocompleteSuggestion, 0, len(res.Fund))
+	for _, item := range res.Fund {
+		if item.Titel != "" {
+			suggestions = append(suggestions, AutocompleteSuggestion{
+				ID:   item.ID,
+				Text: item.Titel,
+			})
+		}
+	}
+
+	return suggestions, nil
 }

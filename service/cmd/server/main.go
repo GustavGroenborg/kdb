@@ -135,6 +135,7 @@ func main() {
 			protected.Post("/locations", locationsHandler.Create)
 			protected.Put("/locations/{id}", locationsHandler.Update)
 			protected.Delete("/locations/{id}", locationsHandler.Delete)
+			protected.Get("/addresses/autocomplete", locationsHandler.AutocompleteAddress)
 
 			// Routes
 			protected.Get("/routes", routesHandler.List)

@@ -124,6 +124,9 @@ export const api = {
       method: 'DELETE',
     }),
 
+  autocompleteAddress: (query: string) =>
+    request<Array<{ id: string; text: string }>>(`/api/addresses/autocomplete?q=${encodeURIComponent(query)}`),
+
   // Routes
   getRoutes: () => request<Route[]>('/api/routes'),
 
