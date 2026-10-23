@@ -147,6 +147,7 @@ func main() {
 			protected.Get("/drives", drivesHandler.List)
 			protected.Post("/drives", drivesHandler.Create)
 			protected.Delete("/drives/{id}", drivesHandler.Delete)
+			protected.Post("/drives/recalculate", drivesHandler.Recalculate)
 
 			// Stats & Export
 			protected.Get("/stats", statsHandler.GetStats)

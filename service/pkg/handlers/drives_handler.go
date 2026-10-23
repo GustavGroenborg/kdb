@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -229,4 +230,85 @@ func (h *DrivesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"message":"drive deleted successfully"}`))
+}
+
+// RecalculateDrivesForUser recomputes the calculated_fradrag for all drives belonging to targetUserID,
+// using targetUserID's current primary home is_yderkommune status and the rate for each drive's tax year.
+func RecalculateDrivesForUser(database *db.DB, targetUserID string) (int, bool, string, error) {
+	var isYder bool
+	var kName sql.NullString
+	_ = database.QueryRow(
+		"SELECT is_yderkommune, kommune_name FROM locations WHERE user_id = ? AND type = 'home' AND is_primary_home = 1 LIMIT 1",
+		targetUserID,
+	).Scan(&isYder, &kName)
+
+	rows, err := database.Query("SELECT id, date, distance_km FROM drives WHERE user_id = ?", targetUserID)
+	if err != nil {
+		return 0, isYder, kName.String, err
+	}
+	defer rows.Close()
+
+	type driveItem struct {
+		id   string
+		date string
+		km   float64
+	}
+	var drives []driveItem
+	for rows.Next() {
+		var d driveItem
+		if err := rows.Scan(&d.id, &d.date, &d.km); err == nil {
+			drives = append(drives, d)
+		}
+	}
+
+	ratesCache := make(map[int]models.TaxRate)
+	updatedCount := 0
+
+	for _, d := range drives {
+		year := time.Now().Year()
+		if len(d.date) >= 4 {
+			if y, err := strconv.Atoi(d.date[:4]); err == nil {
+				year = y
+			}
+		}
+
+		rate, exists := ratesCache[year]
+		if !exists {
+			err := database.QueryRow(
+				"SELECT year, threshold_km, base_rate, tier2_threshold_km, tier2_rate, yderkommune_rate FROM tax_rates WHERE year = ?",
+				year,
+			).Scan(&rate.Year, &rate.ThresholdKm, &rate.BaseRate, &rate.Tier2ThresholdKm, &rate.Tier2Rate, &rate.YderkommuneRate)
+			if err != nil {
+				rate = fradrag.DefaultRates(year)
+			}
+			ratesCache[year] = rate
+		}
+
+		newFradrag := fradrag.Calculate(d.km, rate, isYder)
+		_, err := database.Exec("UPDATE drives SET calculated_fradrag = ? WHERE id = ?", newFradrag, d.id)
+		if err == nil {
+			updatedCount++
+		}
+	}
+
+	return updatedCount, isYder, kName.String, nil
+}
+
+// Recalculate handles on-demand recalculation of all trips for the authenticated target account.
+func (h *DrivesHandler) Recalculate(w http.ResponseWriter, r *http.Request) {
+	targetUserID := middleware.GetTargetUserID(r.Context())
+
+	count, isYder, kName, err := RecalculateDrivesForUser(h.DB, targetUserID)
+	if err != nil {
+		http.Error(w, `{"error":"failed to recalculate drives"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":            "drives recalculated successfully",
+		"recalculated_count": count,
+		"is_yderkommune":     isYder,
+		"kommune_name":       kName,
+	})
 }

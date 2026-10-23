@@ -17,6 +17,7 @@ export interface Location {
   kommune_code?: string;
   kommune_name?: string;
   is_yderkommune?: boolean;
+  is_dar_approved?: boolean;
   created_at: string;
 }
 

@@ -68,6 +68,7 @@ func InitDB(dataSourceName string) (*DB, error) {
 		kommune_code TEXT DEFAULT '',
 		kommune_name TEXT DEFAULT '',
 		is_yderkommune BOOLEAN NOT NULL DEFAULT 0,
+		is_dar_approved BOOLEAN NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL
 	);
 
@@ -170,6 +171,10 @@ func InitDB(dataSourceName string) (*DB, error) {
 	}
 	if !locationCols["is_yderkommune"] {
 		_, _ = db.Exec("ALTER TABLE locations ADD COLUMN is_yderkommune BOOLEAN NOT NULL DEFAULT 0;")
+	}
+	if !locationCols["is_dar_approved"] {
+		_, _ = db.Exec("ALTER TABLE locations ADD COLUMN is_dar_approved BOOLEAN NOT NULL DEFAULT 0;")
+		_, _ = db.Exec("UPDATE locations SET is_dar_approved = 1 WHERE kommune_code IS NOT NULL AND kommune_code != '';")
 	}
 
 	// Idempotent column migrations for tax_rates table

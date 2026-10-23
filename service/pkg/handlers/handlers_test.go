@@ -60,6 +60,7 @@ func setupTestRouter(t *testing.T) (*chi.Mux, *db.DB, []byte) {
 			protected.Get("/drives", drivesHandler.List)
 			protected.Post("/drives", drivesHandler.Create)
 			protected.Delete("/drives/{id}", drivesHandler.Delete)
+			protected.Post("/drives/recalculate", drivesHandler.Recalculate)
 
 			protected.Get("/stats", statsHandler.GetStats)
 			protected.Get("/export", statsHandler.ExportCSV)
@@ -564,6 +565,89 @@ func TestAddressAutocompleteEndpoint(t *testing.T) {
 	}
 	if suggestions[0].Text != "Højgårdsvej 9, Mjallerup, 9670 Løgstør" {
 		t.Errorf("got %s, want Højgårdsvej 9, Mjallerup, 9670 Løgstør", suggestions[0].Text)
+	}
+}
+
+func TestRecalculateHistoricalDrives(t *testing.T) {
+	router, database, _ := setupTestRouter(t)
+	defer database.Close()
+
+	// Register user
+	regPayload := `{"username":"recalcuser","email":"recalc@example.com","password":"Password123!"}`
+	req := httptest.NewRequest("POST", "/api/auth/register", bytes.NewBufferString(regPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	var authResp handlers.AuthResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &authResp)
+	token := authResp.Token
+
+	// 1. Create standard (non-yderkommune) home location
+	homePayload := `{"name":"Hjem","type":"home","address":"Nørrebrogade 10, 2200 København N"}`
+	req = httptest.NewRequest("POST", "/api/locations", bytes.NewBufferString(homePayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	var homeLoc models.Location
+	_ = json.Unmarshal(rec.Body.Bytes(), &homeLoc)
+
+	// 2. Create work location
+	workPayload := `{"name":"Arbejde","type":"workplace","address":"DTU Lyngby"}`
+	req = httptest.NewRequest("POST", "/api/locations", bytes.NewBufferString(workPayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	var workLoc models.Location
+	_ = json.Unmarshal(rec.Body.Bytes(), &workLoc)
+
+	// 3. Create 50 km route
+	routePayload := `{"name":"Hjem-Arbejde","origin_location_id":"` + homeLoc.ID + `","destination_location_id":"` + workLoc.ID + `","distance_one_way_km":25,"distance_round_trip_km":50,"is_default":true}`
+	req = httptest.NewRequest("POST", "/api/routes", bytes.NewBufferString(routePayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	var route models.Route
+	_ = json.Unmarshal(rec.Body.Bytes(), &route)
+
+	// 4. Log a 50 km drive in 2026 -> standard rate (3.17 kr./km) gives (50-24)*3.17 = 82.42 DKK
+	drivePayload := `{"route_id":"` + route.ID + `","date":"2026-06-15"}`
+	req = httptest.NewRequest("POST", "/api/drives", bytes.NewBufferString(drivePayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	var drive models.Drive
+	_ = json.Unmarshal(rec.Body.Bytes(), &drive)
+	if math.Abs(drive.CalculatedFradrag-82.42) > 0.001 {
+		t.Errorf("initial fradrag got %f, want 82.42", drive.CalculatedFradrag)
+	}
+
+	// 5. Update home location to an yderkommune in database
+	_, err := database.Exec("UPDATE locations SET kommune_code = '0820', kommune_name = 'Vesthimmerland', is_yderkommune = 1, is_dar_approved = 1 WHERE id = ?", homeLoc.ID)
+	if err != nil {
+		t.Fatalf("failed to update home: %v", err)
+	}
+
+	// 6. Call POST /api/drives/recalculate
+	req = httptest.NewRequest("POST", "/api/drives/recalculate", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("recalculate failed: %d", rec.Code)
+	}
+
+	// 7. Verify that the drive now has yderkommune rate 3.51 -> (50-24)*3.51 = 91.26 DKK
+	var updatedFradrag float64
+	err = database.QueryRow("SELECT calculated_fradrag FROM drives WHERE id = ?", drive.ID).Scan(&updatedFradrag)
+	if err != nil {
+		t.Fatalf("failed to query updated drive: %v", err)
+	}
+	if math.Abs(updatedFradrag-91.26) > 0.001 {
+		t.Errorf("recalculated fradrag got %f, want 91.26", updatedFradrag)
 	}
 }
 

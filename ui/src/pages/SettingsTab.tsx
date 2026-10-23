@@ -17,6 +17,7 @@ import {
   Pencil,
   X,
   Check,
+  RefreshCw,
   UserCog,
   KeyRound,
   Lock,
@@ -35,6 +36,10 @@ export const SettingsTab: React.FC = () => {
     shared_with_me: [],
   });
   const [rates, setRates] = useState<TaxRate | null>(null);
+  const [drivesCount, setDrivesCount] = useState(0);
+  const [showRecalcPrompt, setShowRecalcPrompt] = useState(false);
+  const [pendingAddress, setPendingAddress] = useState<string | null>(null);
+  const [isRecalculating, setIsRecalculating] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -86,17 +91,19 @@ export const SettingsTab: React.FC = () => {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [fetchedLocs, fetchedRoutes, fetchedShares, fetchedRates] = await Promise.all([
+      const [fetchedLocs, fetchedRoutes, fetchedShares, fetchedRates, fetchedStats] = await Promise.all([
         api.getLocations(),
         api.getRoutes(),
         api.getShares(),
         api.getRates(),
+        api.getStats(),
       ]);
 
       setLocations(fetchedLocs);
       setRoutes(fetchedRoutes);
       setShares(fetchedShares);
       setRates(fetchedRates);
+      setDrivesCount(fetchedStats?.total_drives || 0);
 
       const home = fetchedLocs.find((l) => l.type === 'home');
       if (home) {
@@ -119,29 +126,67 @@ export const SettingsTab: React.FC = () => {
     setTimeout(() => setSuccessMsg(null), 4000);
   };
 
-  // 1. Save Home
-  const handleSaveHome = async (e?: React.FormEvent, overrideAddr?: string) => {
+  // 1. Save Home - checks if drives exist and prompts if address is changing
+  const requestSaveHome = (e?: React.FormEvent, overrideAddr?: string) => {
     if (e) e.preventDefault();
     if (!canWrite) return;
     const targetAddress = (overrideAddr || homeAddress).trim();
     if (!targetAddress) return;
+
+    const currentHome = locations.find((l) => l.type === 'home');
+    // If the user has existing recorded drives and address is being changed/updated:
+    if (drivesCount > 0 && currentHome && currentHome.address.trim() !== targetAddress) {
+      setPendingAddress(targetAddress);
+      setShowRecalcPrompt(true);
+      return;
+    }
+
+    // Otherwise save directly
+    executeSaveHome(targetAddress, false);
+  };
+
+  const executeSaveHome = async (targetAddress: string, recalculateDrives: boolean) => {
     try {
       await api.createLocation({
         name: homeName.trim() || 'My Residence',
         type: 'home',
         address: targetAddress,
+        recalculate_drives: recalculateDrives,
       });
-      showSuccess('Home address updated and verified with DAR!');
+      showSuccess(
+        recalculateDrives
+          ? `Bopælsadresse opdateret og ${drivesCount} kørsler er genberegnet med ny sats!`
+          : 'Bopælsadresse opdateret og verificeret i DAR!'
+      );
       await fetchData();
       await refreshMe();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to update home');
+      setErrorMsg(err.message || 'Kunne ikke opdatere bopælsadresse');
+    } finally {
+      setShowRecalcPrompt(false);
+      setPendingAddress(null);
     }
   };
 
   const handleHomeAddressSelect = (selectedAddress: string) => {
     setHomeAddress(selectedAddress);
-    handleSaveHome(undefined, selectedAddress);
+    requestSaveHome(undefined, selectedAddress);
+  };
+
+  const handleManualRecalculate = async () => {
+    if (!canWrite || isRecalculating) return;
+    setIsRecalculating(true);
+    try {
+      const res = await api.recalculateDrives();
+      showSuccess(
+        `${res.recalculated_count} kørsler er genberegnet med sats for ${res.kommune_name || 'din registrerede bopæl'}!`
+      );
+      await fetchData();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Kunne ikke genberegne kørsler');
+    } finally {
+      setIsRecalculating(false);
+    }
   };
 
   // 2. Add Workplace or University
@@ -448,7 +493,7 @@ export const SettingsTab: React.FC = () => {
                 Your registered Danish tax residence. All routes originate from this home address.
               </p>
 
-              <form onSubmit={handleSaveHome} className="space-y-4">
+              <form onSubmit={requestSaveHome} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Home Label
@@ -502,8 +547,13 @@ export const SettingsTab: React.FC = () => {
                       <div className="p-3 bg-emerald-50 border border-emerald-200/80 rounded-xl text-xs text-emerald-900 flex items-start space-x-2.5">
                         <span className="text-sm leading-none">🌟</span>
                         <div>
-                          <div className="font-semibold text-emerald-950">
-                            Yderkommune ({home.kommune_name})
+                          <div className="font-semibold text-emerald-950 flex items-center">
+                            <span>Yderkommune ({home.kommune_name})</span>
+                            {home.is_dar_approved && (
+                              <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                ✓ DAR Godkendt
+                              </span>
+                            )}
                           </div>
                           <p className="text-[11px] text-emerald-800 mt-0.5">
                             Fuld befordringssats (3,51 kr./km i {rates?.year ?? 2026} for alle km &gt; 24) jf. Ligningslovens § 9 C, stk. 3.
@@ -514,8 +564,13 @@ export const SettingsTab: React.FC = () => {
                       <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl text-xs text-slate-800 flex items-start space-x-2.5">
                         <span className="text-sm leading-none">📍</span>
                         <div>
-                          <div className="font-semibold text-slate-900">
-                            Kommune: {home.kommune_name}
+                          <div className="font-semibold text-slate-900 flex items-center">
+                            <span>Kommune: {home.kommune_name}</span>
+                            {home.is_dar_approved && (
+                              <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+                                ✓ DAR Godkendt
+                              </span>
+                            )}
                           </div>
                           <p className="text-[11px] text-slate-600 mt-0.5">
                             Standard befordringsfradrag (3,17 kr./km for 25–120 km og 1,59 kr./km over 120 km i {rates?.year ?? 2026}).
@@ -641,6 +696,23 @@ export const SettingsTab: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {canWrite && drivesCount > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="text-xs text-slate-600">
+                  <span>Har du opdateret bopæl eller kommunesats? Du kan genberegne dine tidligere registrerede kørsler ({drivesCount} kørsler) med den gældende sats for bopælen.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleManualRecalculate}
+                  disabled={isRecalculating}
+                  className="inline-flex items-center justify-center space-x-2 px-3.5 py-2 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-xl transition-colors whitespace-nowrap shrink-0 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRecalculating ? 'animate-spin' : ''}`} />
+                  <span>{isRecalculating ? 'Genberegner...' : 'Genberegn alle kørsler'}</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1278,6 +1350,54 @@ export const SettingsTab: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Recalculate Historical Drives Confirmation Modal */}
+      {showRecalcPrompt && pendingAddress && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
+            <div className="w-10 h-10 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center mb-4">
+              <RefreshCw className="w-5 h-5" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 mb-2">
+              Genberegn historiske kørsler?
+            </h3>
+            <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+              Du er ved at ændre din bopælsadresse. Du har i øjeblikket <strong>{drivesCount} registrerede kørsler</strong> i systemet.
+              Ønsker du at genberegne befordringsfradraget for alle dine tidligere kørsler med den nye bopælssats (f.eks. yderkommunesats)?
+            </p>
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/60 text-[11px] text-slate-700 mb-5 break-words">
+              <span className="font-semibold text-slate-900">Ny adresse:</span> {pendingAddress}
+            </div>
+
+            <div className="flex flex-col space-y-2">
+              <button
+                type="button"
+                onClick={() => executeSaveHome(pendingAddress, true)}
+                className="w-full py-2.5 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all"
+              >
+                Ja, genberegn alle tidligere kørsler ({drivesCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => executeSaveHome(pendingAddress, false)}
+                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-all"
+              >
+                Nej, opdatér kun adresse
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRecalcPrompt(false);
+                  setPendingAddress(null);
+                }}
+                className="w-full py-2 text-xs text-slate-400 hover:text-slate-600 font-medium transition-colors"
+              >
+                Annullér
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

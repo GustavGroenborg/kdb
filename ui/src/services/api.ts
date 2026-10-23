@@ -107,13 +107,13 @@ export const api = {
   // Locations
   getLocations: () => request<Location[]>('/api/locations'),
 
-  createLocation: (payload: { name: string; type: LocationType; address: string }) =>
+  createLocation: (payload: { name: string; type: LocationType; address: string; recalculate_drives?: boolean }) =>
     request<Location>('/api/locations', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
 
-  updateLocation: (id: string, payload: { name: string; address: string }) =>
+  updateLocation: (id: string, payload: { name: string; address: string; recalculate_drives?: boolean }) =>
     request<Location>(`/api/locations/${id}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
@@ -126,6 +126,12 @@ export const api = {
 
   autocompleteAddress: (query: string) =>
     request<Array<{ id: string; text: string }>>(`/api/addresses/autocomplete?q=${encodeURIComponent(query)}`),
+
+  recalculateDrives: () =>
+    request<{ message: string; recalculated_count: number; is_yderkommune: boolean; kommune_name: string }>(
+      '/api/drives/recalculate',
+      { method: 'POST' }
+    ),
 
   // Routes
   getRoutes: () => request<Route[]>('/api/routes'),

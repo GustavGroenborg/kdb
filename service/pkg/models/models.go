@@ -28,6 +28,7 @@ type Location struct {
 	KommuneCode   string       `json:"kommune_code,omitempty"`
 	KommuneName   string       `json:"kommune_name,omitempty"`
 	IsYderkommune bool         `json:"is_yderkommune"`
+	IsDARApproved bool         `json:"is_dar_approved"`
 	CreatedAt     time.Time    `json:"created_at"`
 }
 
