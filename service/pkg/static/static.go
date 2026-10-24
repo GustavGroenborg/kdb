@@ -10,9 +10,27 @@ import (
 	"time"
 )
 
+func setCacheControl(w http.ResponseWriter, p string) {
+	cleanPath := strings.TrimPrefix(p, "/")
+	if strings.HasPrefix(cleanPath, "assets/") {
+		// Vite hashed static assets are immutable and safe to cache for 1 year
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else if cleanPath == "index.html" || strings.HasSuffix(cleanPath, ".html") {
+		// Never aggressively cache HTML entry points to ensure instant deployment updates
+		w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+	}
+}
+
 // Handler serves static files from an fs.FS (e.g. embed.FS) with fallback to index.html for SPA routing.
 func Handler(staticFS fs.FS, fallbackDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Enforce HTTP security headers on all static responses
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {
 			path = "index.html"
@@ -25,6 +43,7 @@ func Handler(staticFS fs.FS, fallbackDir string) http.HandlerFunc {
 				defer f.Close()
 				fi, err := f.Stat()
 				if err == nil && !fi.IsDir() {
+					setCacheControl(w, path)
 					http.FileServer(http.FS(staticFS)).ServeHTTP(w, r)
 					return
 				}
@@ -39,6 +58,7 @@ func Handler(staticFS fs.FS, fallbackDir string) http.HandlerFunc {
 					if indexStat, err := indexFile.Stat(); err == nil {
 						modTime = indexStat.ModTime()
 					}
+					setCacheControl(w, "index.html")
 					if rs, ok := indexFile.(io.ReadSeeker); ok {
 						http.ServeContent(w, r, "index.html", modTime, rs)
 						return
@@ -51,6 +71,7 @@ func Handler(staticFS fs.FS, fallbackDir string) http.HandlerFunc {
 		if fallbackDir != "" {
 			filePath := filepath.Join(fallbackDir, path)
 			if fi, err := os.Stat(filePath); err == nil && !fi.IsDir() {
+				setCacheControl(w, path)
 				http.ServeFile(w, r, filePath)
 				return
 			}
@@ -58,6 +79,7 @@ func Handler(staticFS fs.FS, fallbackDir string) http.HandlerFunc {
 			// SPA fallback
 			indexPath := filepath.Join(fallbackDir, "index.html")
 			if _, err := os.Stat(indexPath); err == nil {
+				setCacheControl(w, "index.html")
 				http.ServeFile(w, r, indexPath)
 				return
 			}

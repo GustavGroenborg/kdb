@@ -20,11 +20,28 @@ interface RegisterTabProps {
   onGoToSettings: () => void;
 }
 
+// Local calendar date formatter (prevents UTC date shifts after midnight in CET/CEST)
+export const formatLocalDate = (d: Date = new Date()): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Returns most recent Friday date (useful for commuters registering drives on Monday/weekends)
+export const getFridayPreset = (): string => {
+  const d = new Date();
+  const day = d.getDay(); // 0 = Sun, 1 = Mon, ..., 5 = Fri, 6 = Sat
+  const diff = day >= 5 ? day - 5 : day + 2;
+  d.setDate(d.getDate() - diff);
+  return formatLocalDate(d);
+};
+
 export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
   const { activePermission, activeAccountName, isViewingSharedAccount, activeAccountId } = useAuth();
   const [routes, setRoutes] = useState<Route[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string>('');
-  const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState<string>(() => formatLocalDate());
   const [notes, setNotes] = useState<string>('');
   const [distanceKmOverride, setDistanceKmOverride] = useState<string>('');
   const [rates, setRates] = useState<TaxRate | null>(null);
@@ -307,8 +324,8 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
               <div className="mt-2 flex space-x-2 text-xs">
                 <button
                   type="button"
-                  onClick={() => setDate(new Date().toISOString().split('T')[0])}
-                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700"
+                  onClick={() => setDate(formatLocalDate())}
+                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium transition-colors"
                 >
                   Today
                 </button>
@@ -317,11 +334,18 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
                   onClick={() => {
                     const y = new Date();
                     y.setDate(y.getDate() - 1);
-                    setDate(y.toISOString().split('T')[0]);
+                    setDate(formatLocalDate(y));
                   }}
-                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700"
+                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium transition-colors"
                 >
                   Yesterday
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDate(getFridayPreset())}
+                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium transition-colors"
+                >
+                  Friday
                 </button>
               </div>
             </div>
@@ -404,7 +428,7 @@ export const RegisterTab: React.FC<RegisterTabProps> = ({ onGoToSettings }) => {
           <div className="flex items-center space-x-2">
             <Clock className="w-4 h-4 text-slate-500" />
             <h3 className="font-bold text-sm text-slate-800">
-              Drives Logged for {date === new Date().toISOString().split('T')[0] ? 'Today' : date}
+              Drives Logged for {date === formatLocalDate() ? 'Today' : date}
             </h3>
           </div>
           <span className="text-xs font-semibold text-slate-500">
