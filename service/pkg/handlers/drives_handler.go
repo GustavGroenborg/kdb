@@ -264,22 +264,6 @@ func RecalculateDrivesForUser(database *db.DB, targetUserID string) (int, bool, 
 	ratesCache := make(map[int]models.TaxRate)
 	updatedCount := 0
 
-	if len(drives) == 0 {
-		return 0, isYder, kName.String, nil
-	}
-
-	tx, err := database.Begin()
-	if err != nil {
-		return 0, isYder, kName.String, err
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Prepare("UPDATE drives SET calculated_fradrag = ? WHERE id = ?")
-	if err != nil {
-		return 0, isYder, kName.String, err
-	}
-	defer stmt.Close()
-
 	for _, d := range drives {
 		year := time.Now().Year()
 		if len(d.date) >= 4 {
@@ -301,13 +285,10 @@ func RecalculateDrivesForUser(database *db.DB, targetUserID string) (int, bool, 
 		}
 
 		newFradrag := fradrag.Calculate(d.km, rate, isYder)
-		if _, err := stmt.Exec(newFradrag, d.id); err == nil {
+		_, err := database.Exec("UPDATE drives SET calculated_fradrag = ? WHERE id = ?", newFradrag, d.id)
+		if err == nil {
 			updatedCount++
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return 0, isYder, kName.String, err
 	}
 
 	return updatedCount, isYder, kName.String, nil
